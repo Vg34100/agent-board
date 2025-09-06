@@ -55,4 +55,16 @@ impl Task {
             created_at: Utc::now(),
         }
     }
+
+    pub fn update_title(&mut self, new_title: String) {
+        self.title = new_title;
+    }
+
+    pub fn update_description(&mut self, new_description: String) {
+        self.description = new_description;
+    }
+
+    pub fn update_status(&mut self, new_status: TaskStatus) {
+        self.status = new_status;
+    }
 }
