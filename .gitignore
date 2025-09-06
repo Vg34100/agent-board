@@ -1,0 +1,42 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+
+# Tauri
+/src-tauri/target/
+/src-tauri/gen/
+
+# Leptos/Trunk
+/dist/
+/pkg/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node.js (if using any JS tooling)
+node_modules/
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+
+# Environment
+.env
+.env.local
+.env.production
