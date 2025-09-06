@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::html::Dialog;
 use crate::app::AppView;
 use crate::models::{Task, TaskStatus};
-use crate::components::{TaskModal, TaskSidebar};
+use crate::components::{TaskModal, TaskSidebar, EditTaskModal};
 
 #[component]
 pub fn Kanban(project_id: String) -> impl IntoView {
@@ -58,9 +58,13 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     // Track which dropdown is currently open (task ID)
     let (open_dropdown, set_open_dropdown) = signal::<Option<String>>(None);
     
-    // Create a reference to the HTML dialog element that we can use to control it
-    // from Rust code (open/close modal programmatically)
+    // Create references to the HTML dialog elements that we can use to control them
+    // from Rust code (open/close modals programmatically)
     let dialog_ref: NodeRef<Dialog> = NodeRef::new();
+    let edit_dialog_ref: NodeRef<Dialog> = NodeRef::new();
+    
+    // Track which task is being edited
+    let (editing_task, set_editing_task) = signal::<Option<Task>>(None);
 
     // Navigation handlers
     let back_to_projects = move |_| {
@@ -87,6 +91,8 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             tasks.push(task);
         });
     }) as Box<dyn Fn(Task) + 'static>;
+
+    // Task management functions are now inlined where they're used
     
     // Handler for when a task is clicked - opens the sidebar with task details
     let select_task = move |task: Task| {
@@ -186,23 +192,45 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                     <div class="task-actions-mobile" style="display: none;">
                                                                         <button 
                                                                             class="task-action-btn edit-btn"
-                                                                            on:click=move |e| {
-                                                                                e.stop_propagation();
-                                                                                leptos::logging::log!("Edit task clicked");
+                                                                            on:click={
+                                                                                let task_for_mobile_edit = task.clone();
+                                                                                let set_editing_task_mobile = set_editing_task.clone();
+                                                                                let edit_dialog_ref_mobile = edit_dialog_ref.clone();
+                                                                                move |e| {
+                                                                                    e.stop_propagation();
+                                                                                    set_editing_task_mobile.set(Some(task_for_mobile_edit.clone()));
+                                                                                    if let Some(dialog) = edit_dialog_ref_mobile.get() {
+                                                                                        let _ = dialog.show_modal();
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         >"✎"</button>
                                                                         <button 
                                                                             class="task-action-btn cancel-btn"
-                                                                            on:click=move |e| {
-                                                                                e.stop_propagation();
-                                                                                leptos::logging::log!("Cancel task clicked");
+                                                                            on:click={
+                                                                                let task_id_mobile_cancel = task.id.clone();
+                                                                                let set_tasks_mobile_cancel = set_tasks.clone();
+                                                                                move |e| {
+                                                                                    e.stop_propagation();
+                                                                                    set_tasks_mobile_cancel.update(|tasks| {
+                                                                                        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id_mobile_cancel) {
+                                                                                            task.update_status(TaskStatus::Cancelled);
+                                                                                        }
+                                                                                    });
+                                                                                }
                                                                             }
                                                                         >"⚠"</button>
                                                                         <button 
                                                                             class="task-action-btn delete-btn"
-                                                                            on:click=move |e| {
-                                                                                e.stop_propagation();
-                                                                                leptos::logging::log!("Delete task clicked");
+                                                                            on:click={
+                                                                                let task_id_mobile_delete = task.id.clone();
+                                                                                let set_tasks_mobile_delete = set_tasks.clone();
+                                                                                move |e| {
+                                                                                    e.stop_propagation();
+                                                                                    set_tasks_mobile_delete.update(|tasks| {
+                                                                                        tasks.retain(|t| t.id != task_id_mobile_delete);
+                                                                                    });
+                                                                                }
                                                                             }
                                                                         >"🗑"</button>
                                                                     </div>
@@ -215,36 +243,54 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                 class:show=move || open_dropdown.get() == Some(task_id_for_dropdown_show.clone())
                                                             >
                                                                 {
-                                                                    let task_id_for_edit = task.id.clone();
-                                                                    let task_id_for_cancel = task.id.clone();
-                                                                    let task_id_for_delete = task.id.clone();
-                                                                    let set_open_dropdown_for_edit = set_open_dropdown.clone();
-                                                                    let set_open_dropdown_for_cancel = set_open_dropdown.clone();
-                                                                    let set_open_dropdown_for_delete = set_open_dropdown.clone();
-                                                                    
                                                                     view! {
                                                                         <button 
                                                                             class="dropdown-item edit-item"
-                                                                            on:click=move |e| {
-                                                                                e.stop_propagation();
-                                                                                set_open_dropdown_for_edit.set(None); // Close dropdown
-                                                                                leptos::logging::log!("Edit task clicked");
+                                                                            on:click={
+                                                                                let task_for_dropdown_edit = task.clone();
+                                                                                let set_editing_task_dropdown = set_editing_task.clone();
+                                                                                let edit_dialog_ref_dropdown = edit_dialog_ref.clone();
+                                                                                let set_open_dropdown_edit = set_open_dropdown.clone();
+                                                                                move |e| {
+                                                                                    e.stop_propagation();
+                                                                                    set_open_dropdown_edit.set(None); // Close dropdown
+                                                                                    set_editing_task_dropdown.set(Some(task_for_dropdown_edit.clone()));
+                                                                                    if let Some(dialog) = edit_dialog_ref_dropdown.get() {
+                                                                                        let _ = dialog.show_modal();
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         >"Edit"</button>
                                                                         <button 
                                                                             class="dropdown-item cancel-item"
-                                                                            on:click=move |e| {
-                                                                                e.stop_propagation();
-                                                                                set_open_dropdown_for_cancel.set(None); // Close dropdown
-                                                                                leptos::logging::log!("Cancel task clicked");
+                                                                            on:click={
+                                                                                let task_id_dropdown_cancel = task.id.clone();
+                                                                                let set_tasks_dropdown_cancel = set_tasks.clone();
+                                                                                let set_open_dropdown_cancel = set_open_dropdown.clone();
+                                                                                move |e| {
+                                                                                    e.stop_propagation();
+                                                                                    set_open_dropdown_cancel.set(None); // Close dropdown
+                                                                                    set_tasks_dropdown_cancel.update(|tasks| {
+                                                                                        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id_dropdown_cancel) {
+                                                                                            task.update_status(TaskStatus::Cancelled);
+                                                                                        }
+                                                                                    });
+                                                                                }
                                                                             }
                                                                         >"Cancel"</button>
                                                                         <button 
                                                                             class="dropdown-item delete-item"
-                                                                            on:click=move |e| {
-                                                                                e.stop_propagation();
-                                                                                set_open_dropdown_for_delete.set(None); // Close dropdown
-                                                                                leptos::logging::log!("Delete task clicked");
+                                                                            on:click={
+                                                                                let task_id_dropdown_delete = task.id.clone();
+                                                                                let set_tasks_dropdown_delete = set_tasks.clone();
+                                                                                let set_open_dropdown_delete = set_open_dropdown.clone();
+                                                                                move |e| {
+                                                                                    e.stop_propagation();
+                                                                                    set_open_dropdown_delete.set(None); // Close dropdown
+                                                                                    set_tasks_dropdown_delete.update(|tasks| {
+                                                                                        tasks.retain(|t| t.id != task_id_dropdown_delete);
+                                                                                    });
+                                                                                }
                                                                             }
                                                                         >"Delete"</button>
                                                                     }
@@ -268,10 +314,44 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             {move || {
                 selected_task.with(|task_opt| {
                     if let Some(task) = task_opt {
+                        let sidebar_edit_callback = {
+                            let set_editing_task_clone = set_editing_task.clone();
+                            let edit_dialog_ref_clone = edit_dialog_ref.clone();
+                            Box::new(move |task: Task| {
+                                set_editing_task_clone.set(Some(task));
+                                if let Some(dialog) = edit_dialog_ref_clone.get() {
+                                    let _ = dialog.show_modal();
+                                }
+                            }) as Box<dyn Fn(Task) + 'static>
+                        };
+
+                        let sidebar_status_callback = {
+                            let set_tasks_for_status = set_tasks.clone();
+                            Box::new(move |task_id: String, status: TaskStatus| {
+                                set_tasks_for_status.update(|tasks| {
+                                    if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+                                        task.update_status(status);
+                                    }
+                                });
+                            }) as Box<dyn Fn(String, TaskStatus) + 'static>
+                        };
+
+                        let sidebar_delete_callback = {
+                            let set_tasks_for_delete = set_tasks.clone();
+                            Box::new(move |task_id: String| {
+                                set_tasks_for_delete.update(|tasks| {
+                                    tasks.retain(|t| t.id != task_id);
+                                });
+                            }) as Box<dyn Fn(String) + 'static>
+                        };
+
                         view! {
                             <TaskSidebar 
                                 task=task.clone()
                                 selected_task=set_selected_task
+                                on_edit=sidebar_edit_callback
+                                on_update_status=sidebar_status_callback
+                                on_delete=sidebar_delete_callback
                             />
                         }.into_any()
                     } else {
@@ -285,6 +365,33 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 on_create=create_task
                 dialog_ref=dialog_ref
             />
+            
+            {/* Edit Task Modal - always rendered but only shown when editing_task is Some */}
+            {move || {
+                if let Some(task) = editing_task.get() {
+                    let edit_callback = {
+                        let set_tasks_for_edit = set_tasks.clone();
+                        Box::new(move |task_id: String, new_title: String, new_description: String| {
+                            set_tasks_for_edit.update(|tasks| {
+                                if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+                                    task.update_title(new_title);
+                                    task.update_description(new_description);
+                                }
+                            });
+                        }) as Box<dyn Fn(String, String, String) + 'static>
+                    };
+                    
+                    view! {
+                        <EditTaskModal 
+                            task=task
+                            on_edit=edit_callback
+                            dialog_ref=edit_dialog_ref
+                        />
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
         </div>
     }
 }

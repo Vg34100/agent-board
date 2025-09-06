@@ -5,6 +5,9 @@ use crate::models::{Task, TaskStatus};
 pub fn TaskSidebar(
     #[prop(into)] task: Task,
     #[prop(into)] selected_task: WriteSignal<Option<Task>>,
+    #[prop(into)] on_edit: Box<dyn Fn(Task) + 'static>, // Callback to trigger edit modal
+    #[prop(into)] on_update_status: Box<dyn Fn(String, TaskStatus) + 'static>,
+    #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
 ) -> impl IntoView {
     // State for showing/hiding full description
     let (show_full_description, set_show_full_description) = signal(false);
@@ -13,6 +16,7 @@ pub fn TaskSidebar(
     let task_title = task.title.clone();
     let task_description = task.description.clone();
     let task_status = task.status.clone();
+    let task_id = task.id.clone();
     
     // Determine if description is long (more than 5 lines approximately)
     let description_is_long = task_description.len() > 200; // Rough estimate
@@ -39,25 +43,33 @@ pub fn TaskSidebar(
                     <button 
                         class="action-btn edit-btn" 
                         title="Edit Task"
-                        on:click=move |_| {
-                            // TODO: Open edit modal
-                            leptos::logging::log!("Edit task clicked");
+                        on:click={
+                            let task_for_edit = task.clone();
+                            move |_| {
+                                on_edit(task_for_edit.clone());
+                            }
                         }
                     >"✎"</button>
                     <button 
                         class="action-btn cancel-btn" 
                         title="Move to Cancelled"
-                        on:click=move |_| {
-                            // TODO: Move task to cancelled status
-                            leptos::logging::log!("Cancel task clicked");
+                        on:click={
+                            let task_id_for_cancel = task_id.clone();
+                            move |_| {
+                                on_update_status(task_id_for_cancel.clone(), TaskStatus::Cancelled);
+                            }
                         }
                     >"⚠"</button>
                     <button 
                         class="action-btn delete-btn" 
                         title="Delete Task"
-                        on:click=move |_| {
-                            // TODO: Delete task
-                            leptos::logging::log!("Delete task clicked");
+                        on:click={
+                            let task_id_for_delete = task_id.clone();
+                            move |_| {
+                                on_delete(task_id_for_delete.clone());
+                                // Close sidebar when task is deleted
+                                selected_task.set(None);
+                            }
                         }
                     >"🗑"</button>
                     <button class="sidebar-close" on:click=close_sidebar>"×"</button>
