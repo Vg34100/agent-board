@@ -1,112 +1,1156 @@
-.logo.leptos:hover {
-  filter: drop-shadow(0 0 2em #a82e20);
-}
+/* Base Styles */
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Monaco, 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.4;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  color: #e0e0e0;
+  background-color: #1a1a1a;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
 }
 
-.container {
+* {
+  box-sizing: border-box;
+}
+
+body {
   margin: 0;
-  padding-top: 10vh;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* App Layout */
+.app {
+  height: 100vh;
+  width: 100vw;
+  background-color: #1a1a1a;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
+/* Buttons */
+.btn-primary, .btn-secondary {
+  border: 1px solid #333;
+  border-radius: 0;
+  padding: 12px 16px; /* Increased padding for larger buttons */
+  font-size: 14px; /* Increased font size */
+  font-weight: 500; /* Slightly bolder text */
   font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: all 0.1s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px; /* Slightly more gap */
+  background: #2a2a2a;
+  color: #e0e0e0;
+  min-height: 36px; /* Ensure consistent button height */
 }
 
-button {
+.btn-primary:hover, .btn-secondary:hover {
+  background: #333;
+  border-color: #555;
+}
+
+/* Projects Page */
+.projects-page {
+  padding: 16px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.projects-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+.projects-header h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  flex: 1;
+}
+
+.project-card {
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 0;
+  padding: 16px;
+  transition: all 0.1s ease;
   cursor: pointer;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+.project-card:hover {
+  background: #333;
+  border-color: #555;
 }
 
-input,
-button {
+.project-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.project-card p {
+  margin: 0 0 12px 0;
+  color: #888;
+  font-size: 12px;
+}
+
+.project-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+}
+
+/* Kanban Page */
+.kanban-page {
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+  background: #2a2a2a;
+}
+
+.kanban-header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.kanban-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.kanban-board {
+  display: flex;
+  flex: 1;
+  overflow-x: auto; /* Allow horizontal scrolling if needed */
+  overflow-y: visible; /* Allow dropdowns to extend vertically */
+  min-height: 0; /* Allow flex item to shrink properly */
+}
+
+.kanban-column {
+  background: #2a2a2a;
+  border: none;
+  border-right: 1px solid #333;
+  border-radius: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px; /* Prevent columns from getting too narrow when sidebar is open */
+  height: 100%; /* Ensure columns take full height even when sidebar is open */
+}
+
+.kanban-column:last-child {
+  border-right: none;
+}
+
+.column-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1a1a1a;
+}
+
+.column-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.task-count {
+  background: #333;
+  color: #e0e0e0;
+  padding: 2px 6px;
+  border-radius: 0;
+  font-size: 10px;
+  min-width: 20px;
+  text-align: center;
+  border: 1px solid #555;
+}
+
+.column-content {
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: visible; /* Allow dropdowns to extend beyond column bounds */
+  min-height: 0; /* Force flex item to shrink */
+  position: relative; /* Create stacking context for z-index */
+}
+
+.task-card {
+  background: #333;
+  border: none;
+  border-bottom: 1px solid #444;
+  border-radius: 0;
+  padding: 12px 16px;
+  margin: 0;
+  transition: all 0.1s ease;
+  cursor: pointer;
+}
+
+.task-card:hover {
+  background: #404040;
+}
+
+.task-card h4 {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: #e0e0e0;
+}
+
+.task-card p {
+  margin: 0;
+  color: #888;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #555;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* Dialog Modal - HTML native dialog element */
+.task-modal {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: auto;
+  z-index: 1001; /* Higher than sidebar z-index */
+  max-width: none;
+  max-height: none;
+}
+
+/* Dialog backdrop */
+.task-modal::backdrop {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.modal-content {
+  background: #2a2a2a;
+  border: 1px solid #333;
+  width: 400px;
+  max-width: 90vw;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #ffffff; /* Make modal header text white */
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  color: #fff;
+}
+
+.form-group {
+  padding: 16px;
+  border-bottom: 1px solid #333;
+}
+
+.form-group:last-of-type {
+  border-bottom: none;
+}
+
+.form-group label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  color: #888;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  background: #333;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 0;
   outline: none;
 }
 
-#greet-input {
-  margin-right: 5px;
+.form-group input:focus,
+.form-group textarea:focus {
+  border-color: #555;
+  background: #404040;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
+.form-group textarea {
+  resize: vertical;
+  min-height: 60px;
+}
 
-  a:hover {
-    color: #24c8db;
-  }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px;
+  background: #1a1a1a;
+}
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+/* Responsive - Keep minimal for desktop focus */
+@media (max-width: 600px) {
+  .kanban-board {
+    flex-direction: column;
+    overflow-y: auto; /* Enable vertical scrolling for minimal view */
+    height: calc(100vh - 60px); /* Fixed height minus header height */
   }
-  button:active {
-    background-color: #0f0f0f69;
+  
+  .kanban-column {
+    flex: none;
+    height: auto; /* Let columns be only as tall as their content */
+    min-height: 100px; /* Much smaller minimum height */
+    width: 100%;
+    margin-bottom: 16px; /* Add space between stacked columns */
   }
+  
+  .kanban-column:last-child {
+    margin-bottom: 0; /* Remove margin from last column */
+  }
+  
+  .modal-content {
+    width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+}
+
+/* Task Sidebar Layout */
+.kanban-page {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+.kanban-page .main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease;
+}
+
+/* Default with-sidebar behavior - overridden by responsive rules below */
+.kanban-page.with-sidebar .main-content {
+  width: 50%;
+  flex: none;
+  height: 100vh; /* Force full height even when width is constrained */
+}
+
+/* Task Card Clickable State */
+.task-card.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.task-card.clickable:hover {
+  background: #333;
+  border-color: #555;
+  transform: translateY(-1px);
+}
+
+.task-card {
+  position: relative;
+  overflow: visible; /* Allow dropdown to extend beyond card */
+  z-index: 1; /* Create stacking context */
+}
+
+/* When dropdown is open, ensure the task card appears above others */
+.task-card.dropdown-open {
+  z-index: 1002;
+}
+
+.task-content {
+  flex: 1;
+  pointer-events: none; /* Allow click to pass through to parent */
+}
+
+.task-menu {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.task-card:hover .task-menu {
+  opacity: 1;
+}
+
+.task-menu-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.task-menu-btn:hover {
+  background: #444;
+  color: #e0e0e0;
+}
+
+.task-dropdown {
+  position: absolute;
+  top: calc(100% + 4px); /* Position below button with small gap */
+  right: 0;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  min-width: 100px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  display: none;
+  z-index: 1001; /* Higher than sidebar to appear above everything */
+  
+  /* Ensure dropdown appears above other task cards */
+  transform: translateY(0);
+}
+
+/* Dropdown shows when it has the 'show' class - controlled by JavaScript */
+.task-dropdown.show {
+  display: block !important;
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.1s ease;
+}
+
+.dropdown-item:hover {
+  background: #333;
+}
+
+.dropdown-item.edit-item:hover {
+  background: #1a3a5c;
+  color: #4a9eff;
+}
+
+.dropdown-item.cancel-item:hover {
+  background: #5c3a1a;
+  color: #ffa500;
+}
+
+.dropdown-item.delete-item:hover {
+  background: #5c1a1a;
+  color: #ff4444;
+}
+
+/* Task Sidebar */
+.task-sidebar {
+  position: fixed !important;
+  right: 0 !important;
+  top: 0 !important;
+  width: 50% !important;
+  height: 100vh !important;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 1000 !important;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #333;
+  background: #2a2a2a;
+}
+
+.sidebar-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0e0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(100% - 40px);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  background: #333;
+  color: #e0e0e0;
+}
+
+.edit-btn:hover {
+  color: #4a9eff;
+}
+
+.cancel-btn:hover {
+  color: #ffa500;
+}
+
+.delete-btn:hover {
+  color: #ff4444;
+}
+
+.sidebar-close {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-close:hover {
+  color: #e0e0e0;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Task Details Section */
+.task-details {
+  padding: 20px;
+  border-bottom: 1px solid #333;
+}
+
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.task-description p {
+  margin: 0;
+  line-height: 1.5;
+  color: #ccc;
+  font-size: 13px;
+}
+
+.show-more-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  text-decoration: underline;
+}
+
+.show-more-btn:hover {
+  color: #888;
+}
+
+/* Status-Dependent Sections */
+.status-section {
+  margin-top: 20px;
+}
+
+.create-attempt {
+  background: #2a2a2a;
+  padding: 16px;
+  border: 1px solid #333;
+}
+
+.create-attempt h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.attempt-config .config-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.config-row label {
+  min-width: 80px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.config-row select {
+  background: #333;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 0;
+  flex: 1;
+}
+
+.start-btn {
+  background: #4a9eff;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 12px;
+  width: 100%;
+}
+
+.start-btn:hover {
+  background: #3a8eef;
+}
+
+/* Attempt Status */
+.attempt-status {
+  background: #2a2a2a;
+  padding: 16px;
+  border: 1px solid #333;
+}
+
+.attempt-status h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.status-info span {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.action-menu {
+  position: relative;
+}
+
+.menu-dots {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.menu-dots:hover {
+  color: #888;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: #333;
+  border: 1px solid #444;
+  min-width: 120px;
+  z-index: 200;
+}
+
+.dropdown-menu button {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown-menu button:hover {
+  background: #404040;
+}
+
+/* Agent Window */
+.agent-window {
+  flex: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.agent-window h3 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.agent-sessions {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* Agent Session */
+.agent-session {
+  border: 1px solid #333;
+  background: #2a2a2a;
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #252525;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.session-title {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.session-time {
+  color: #888;
+  margin-left: auto;
+}
+
+.restore-btn {
+  background: #333;
+  border: 1px solid #444;
+  color: #aaa;
+  padding: 4px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.restore-btn:hover {
+  background: #404040;
+  color: #ccc;
+}
+
+.session-status {
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.session-status.completed {
+  background: #2d5a2d;
+  color: #7dd87d;
+}
+
+.session-status.in-progress {
+  background: #3d4d2d;
+  color: #ffd700;
+}
+
+.expand-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.expand-btn:hover {
+  color: #888;
+}
+
+.session-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.session-content.hidden {
+  display: none;
+}
+
+/* Messages */
+.message {
+  font-size: 12px;
+}
+
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.sender {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.time {
+  color: #666;
+  font-size: 11px;
+}
+
+.message-content {
+  color: #ccc;
+  line-height: 1.4;
+  padding-left: 12px;
+  border-left: 2px solid #333;
+  margin-left: 8px;
+}
+
+/* Active Session */
+.agent-session.active {
+  border-color: #4a9eff;
+}
+
+.agent-session.active .session-header {
+  background: #1a3d5c;
+}
+
+/* Chat Input */
+.chat-input-section {
+  padding: 16px 20px;
+  border-top: 1px solid #333;
+  background: #2a2a2a;
+}
+
+.input-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.profile-btn {
+  background: #333;
+  border: 1px solid #444;
+  color: #aaa;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.profile-btn:hover {
+  background: #404040;
+  color: #ccc;
+}
+
+.message-input {
+  flex: 1;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: 0;
+  outline: none;
+}
+
+.message-input:focus {
+  border-color: #555;
+  background: #222;
+}
+
+.message-input::placeholder {
+  color: #666;
+}
+
+.send-btn {
+  background: #4a9eff;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.send-btn:hover {
+  background: #3a8eef;
+}
+
+/* 4-TIER RESPONSIVE SIDEBAR SYSTEM */
+
+/* OPTIMAL VIEW (1400px+) - Large screens like 1920x1080 */
+@media (min-width: 1400px) {
+  .kanban-page.with-sidebar .main-content {
+    width: calc(100% - 600px); /* Fixed sidebar width, rest for content */
+  }
+  
+  .kanban-page:not(.with-sidebar) .main-content {
+    width: 100%; /* Full width when sidebar hidden */
+  }
+  
+  .task-sidebar {
+    width: 600px !important; /* Fixed optimal sidebar width */
+  }
+  
+  .kanban-board {
+    overflow-x: visible; /* No horizontal scroll needed */
+  }
+  
+  .kanban-column {
+    min-width: 200px; /* Maintain readable width */
+    flex: 1; /* Allow columns to expand */
+  }
+}
+
+/* ALMOST OPTIMAL VIEW (1000px - 1399px) */
+@media (max-width: 1399px) and (min-width: 1000px) {
+  .kanban-page.with-sidebar .main-content {
+    width: 100%; /* Keep full width for horizontal scroll */
+  }
+  
+  .kanban-page:not(.with-sidebar) .main-content {
+    width: 100%; /* Expand when sidebar hidden */
+  }
+  
+  .task-sidebar {
+    width: 500px !important; /* Max width for sidebar overlay */
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.4);
+  }
+  
+  .kanban-board {
+    overflow-x: auto; /* Enable horizontal scrolling */
+  }
+  
+  .kanban-column {
+    min-width: 250px; /* Maintain minimum width */
+    flex: none; /* Don't shrink columns */
+  }
+}
+
+/* MEDIUM VIEW (769px - 999px) */
+@media (max-width: 999px) and (min-width: 769px) {
+  .kanban-page.with-sidebar .main-content {
+    width: 100%; /* Sidebar overlays */
+  }
+  
+  .kanban-page:not(.with-sidebar) .main-content {
+    width: 100%;
+  }
+  
+  .task-sidebar {
+    width: 400px !important; /* Smaller overlay sidebar */
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.5);
+  }
+  
+  .kanban-board {
+    overflow-x: auto; /* Horizontal scroll for task boards */
+  }
+  
+  .kanban-column {
+    min-width: 220px;
+    flex: none;
+  }
+}
+
+/* MINIMAL VIEW (600px and below) - Tablet View */
+@media (max-width: 600px) {
+  .kanban-page.with-sidebar .main-content {
+    width: 100%; /* Sidebar overlays */
+  }
+  
+  .task-sidebar {
+    width: 85% !important; /* Large overlay on small screens */
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.6);
+  }
+  
+  /* Hide dropdown menu entirely on mobile */
+  .task-dropdown {
+    display: none !important;
+  }
+  
+  /* Hide the menu button (⋯) on mobile */
+  .task-menu-btn {
+    display: none !important;
+  }
+  
+  /* Show action buttons directly on mobile */
+  .task-actions-mobile {
+    display: flex !important;
+    gap: 4px;
+    align-items: center;
+  }
+  
+  /* Adjust task menu for mobile */
+  .task-menu {
+    opacity: 1 !important; /* Always visible on mobile */
+  }
+  
+  .task-action-btn {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 2px;
+    transition: all 0.2s ease;
+  }
+  
+  .task-action-btn:hover {
+    background: #444;
+  }
+  
+  .task-action-btn.edit-btn:hover {
+    background: #1a3a5c;
+    color: #4a9eff;
+  }
+  
+  .task-action-btn.cancel-btn:hover {
+    background: #5c3a1a;
+    color: #ffa500;
+  }
+  
+  .task-action-btn.delete-btn:hover {
+    background: #5c1a1a;
+    color: #ff4444;
+  }
+  
+  /* Vertical stacking is already handled in the kanban-board section above */
 }

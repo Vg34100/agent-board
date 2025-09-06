@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "WebFetch(domain:book.leptos.dev)",
+      "Bash(cargo tauri:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
