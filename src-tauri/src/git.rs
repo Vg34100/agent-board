@@ -6,7 +6,7 @@ use tauri::{AppHandle, Manager};
 #[derive(Debug)]
 pub struct GitWorktree {
     pub path: PathBuf,
-    pub branch_name: String,
+    pub _branch_name: String,
 }
 
 /// Gets the app data directory for storing worktrees
@@ -96,7 +96,7 @@ pub fn create_worktree(app: &AppHandle, project_path: &str, task_id: &str) -> Re
 
     Ok(GitWorktree {
         path: worktree_dir,
-        branch_name,
+        _branch_name: branch_name,
     })
 }
 

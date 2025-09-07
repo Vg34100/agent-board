@@ -442,7 +442,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                             web_sys::console::log_1(&format!("Worktree created successfully at: {}", worktree_path).into());
                                                                                             
                                                                                             // Update task with worktree path and save
-                                                                                            let task_id_for_save = task_id_clone.clone();
+                                                                                            let _task_id_for_save = task_id_clone.clone();
                                                                                             let project_id_for_save = project_id_clone.clone();
                                                                                             
                                                                                             let mut tasks_for_save = Vec::new();
@@ -596,9 +596,34 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                         let sidebar_delete_callback = {
                             let set_tasks_for_delete = set_tasks.clone();
+                            let project_id_for_delete = project_id_for_sidebar.clone();
                             Box::new(move |task_id: String| {
                                 set_tasks_for_delete.update(|tasks| {
                                     tasks.retain(|t| t.id != task_id);
+                                    
+                                    // Save updated tasks to storage after deletion
+                                    let tasks_json: Vec<serde_json::Value> = tasks.iter()
+                                        .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                        .collect();
+                                    
+                                    let project_id_for_save = project_id_for_delete.clone();
+                                    spawn_local(async move {
+                                        let save_args = serde_json::json!({
+                                            "projectId": project_id_for_save,
+                                            "tasks": tasks_json
+                                        });
+                                        
+                                        if let Ok(save_js_value) = to_value(&save_args) {
+                                            match invoke("save_tasks_data", save_js_value).await {
+                                                js_result if !js_result.is_undefined() => {
+                                                    web_sys::console::log_1(&format!("Task {} deleted and saved successfully", task_id).into());
+                                                }
+                                                _ => {
+                                                    web_sys::console::error_1(&format!("Failed to save tasks after deleting task {}", task_id).into());
+                                                }
+                                            }
+                                        }
+                                    });
                                 });
                             }) as Box<dyn Fn(String) + 'static>
                         };
