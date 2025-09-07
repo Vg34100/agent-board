@@ -41,6 +41,7 @@ pub struct Task {
     pub description: String,
     pub status: TaskStatus,
     pub created_at: DateTime<Utc>,
+    pub worktree_path: Option<String>,
 }
 
 impl Task {
@@ -53,6 +54,7 @@ impl Task {
             description,
             status: TaskStatus::ToDo,
             created_at: Utc::now(),
+            worktree_path: None,
         }
     }
 
@@ -66,5 +68,9 @@ impl Task {
 
     pub fn update_status(&mut self, new_status: TaskStatus) {
         self.status = new_status;
+    }
+
+    pub fn set_worktree_path(&mut self, path: Option<String>) {
+        self.worktree_path = path;
     }
 }

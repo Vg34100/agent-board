@@ -30,6 +30,7 @@ pub fn TaskModal(
             description: description.get_untracked(), // Get description without reactive dependency
             status: TaskStatus::ToDo,                 // New tasks always start in ToDo column
             created_at: Utc::now(),                   // Timestamp for when task was created
+            worktree_path: None,                      // No worktree initially
         };
         
         // Call the parent's callback function to add the task to the kanban board
