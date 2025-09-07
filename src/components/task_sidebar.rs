@@ -150,15 +150,30 @@ pub fn TaskSidebar(
                                         {/* Action buttons for worktree operations */}
                                         <div class="action-buttons">
                                             {
-                                                // Debug logging for worktree path
+                                                // Comprehensive debug logging
                                                 let worktree_debug = task.worktree_path.clone();
-                                                web_sys::console::log_1(&format!("TaskSidebar Debug - Task ID: {}, Worktree Path: {:?}", task.id, worktree_debug).into());
+                                                web_sys::console::log_1(&format!("=== TaskSidebar Debug ===").into());
+                                                web_sys::console::log_1(&format!("Task ID: {}", task.id).into());
+                                                web_sys::console::log_1(&format!("Task Status: {:?}", task.status).into());
+                                                web_sys::console::log_1(&format!("Worktree Path: {:?}", worktree_debug).into());
+                                                web_sys::console::log_1(&format!("on_open_worktree callback present: {}", on_open_worktree.is_some()).into());
+                                                web_sys::console::log_1(&format!("on_open_ide callback present: {}", on_open_ide.is_some()).into());
+                                                
+                                                if let Some(ref path) = worktree_debug {
+                                                    web_sys::console::log_1(&format!("SHOULD RENDER BUTTONS - Path: {}", path).into());
+                                                } else {
+                                                    web_sys::console::log_1(&format!("NO BUTTONS - worktree_path is None").into());
+                                                }
+                                                web_sys::console::log_1(&format!("========================").into());
+                                                
                                                 task.worktree_path.as_ref().map(|worktree_path| {
                                                 let worktree_path_for_files = worktree_path.clone();
                                                 let worktree_path_for_ide = worktree_path.clone();
-                                                view! {
-                                                    <div class="worktree-actions">
-                                                        <button 
+                                                {
+                                                    web_sys::console::log_1(&format!("RENDERING WORKTREE BUTTONS for task {}", task.id).into());
+                                                    view! {
+                                                        <div class="worktree-actions">
+                                                            <button 
                                                             class="action-icon-btn"
                                                             title="Open Files in Explorer"
                                                             on:click={
@@ -186,7 +201,8 @@ pub fn TaskSidebar(
                                                         >
                                                             "⚙️"
                                                         </button>
-                                                    </div>
+                                                        </div>
+                                                    }
                                                 }
                                             })}
                                             
