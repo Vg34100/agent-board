@@ -249,55 +249,93 @@ pub fn open_worktree_in_ide(worktree_path: &str) -> Result<(), String> {
         return Err(format!("Worktree path does not exist: {}", worktree_path));
     }
 
-    // Try to open with VS Code (code command)
-    let result = std::process::Command::new("code")
-        .arg(worktree_path)
-        .spawn();
-
-    match result {
-        Ok(_) => {
-            println!("Opened VS Code for: {}", worktree_path);
-            Ok(())
-        }
-        Err(e) => {
-            println!("Failed to open VS Code ({}), trying alternative methods...", e);
-            
-            // Fallback: try with full path to VS Code
-            #[cfg(target_os = "windows")]
-            {
-                let vscode_paths = [
-                    "C:\\Users\\{}\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
-                    "C:\\Program Files\\Microsoft VS Code\\Code.exe",
-                    "C:\\Program Files (x86)\\Microsoft VS Code\\Code.exe",
-                ];
-                
-                if let Ok(username) = std::env::var("USERNAME") {
-                    let user_path = vscode_paths[0].replace("{}", &username);
+    // Try common VS Code paths first since PATH might not be available
+    #[cfg(target_os = "windows")]
+    {
+        let vscode_paths = [
+            // Most common locations
+            "C:\\Users\\{}\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+            "C:\\Program Files\\Microsoft VS Code\\Code.exe", 
+            "C:\\Program Files (x86)\\Microsoft VS Code\\Code.exe",
+            // Alternative locations
+            "C:\\Users\\{}\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd",
+            "C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd",
+            "C:\\Program Files (x86)\\Microsoft VS Code\\bin\\code.cmd",
+        ];
+        
+        // Try user-specific paths first
+        if let Ok(username) = std::env::var("USERNAME") {
+            for path_template in &vscode_paths {
+                if path_template.contains("{}") {
+                    let user_path = path_template.replace("{}", &username);
                     if Path::new(&user_path).exists() {
-                        return std::process::Command::new(&user_path)
+                        match std::process::Command::new(&user_path)
                             .arg(worktree_path)
-                            .spawn()
-                            .map(|_| {
-                                println!("Opened VS Code with full path: {}", user_path);
-                            })
-                            .map_err(|e| format!("Failed to open VS Code with full path: {}", e));
-                    }
-                }
-                
-                for path in &vscode_paths[1..] {
-                    if Path::new(path).exists() {
-                        return std::process::Command::new(path)
-                            .arg(worktree_path)
-                            .spawn()
-                            .map(|_| {
-                                println!("Opened VS Code with path: {}", path);
-                            })
-                            .map_err(|e| format!("Failed to open VS Code: {}", e));
+                            .spawn() 
+                        {
+                            Ok(_) => {
+                                println!("Opened VS Code with path: {}", user_path);
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                println!("Failed to open VS Code at {}: {}", user_path, e);
+                                continue;
+                            }
+                        }
                     }
                 }
             }
-            
-            Err(format!("VS Code not found. Please ensure VS Code is installed and 'code' command is in PATH"))
+        }
+        
+        // Try system-wide paths
+        for path in &vscode_paths {
+            if !path.contains("{}") && Path::new(path).exists() {
+                match std::process::Command::new(path)
+                    .arg(worktree_path)
+                    .spawn()
+                {
+                    Ok(_) => {
+                        println!("Opened VS Code with path: {}", path);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        println!("Failed to open VS Code at {}: {}", path, e);
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Try code.cmd first on Windows (what's actually in PATH)
+    #[cfg(target_os = "windows")]
+    {
+        match std::process::Command::new("code.cmd")
+            .arg(worktree_path)
+            .spawn()
+        {
+            Ok(_) => {
+                println!("Opened VS Code with 'code.cmd' command");
+                return Ok(());
+            }
+            Err(e) => {
+                println!("Failed to open VS Code with 'code.cmd' command: {}", e);
+            }
+        }
+    }
+    
+    // Finally try the code command (fallback)
+    match std::process::Command::new("code")
+        .arg(worktree_path)
+        .spawn()
+    {
+        Ok(_) => {
+            println!("Opened VS Code with 'code' command");
+            Ok(())
+        }
+        Err(e) => {
+            println!("Failed to open VS Code with 'code' command: {}", e);
+            Err(format!("VS Code not found. Tried installation paths, 'code.cmd', and 'code' command. Please ensure VS Code is installed and in PATH."))
         }
     }
 }

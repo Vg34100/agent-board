@@ -145,76 +145,70 @@ pub fn TaskSidebar(
                                     <div class="status-info">
                                         <span class="profile-info">"Profile: default"</span>
                                         <span class="branch-info">{format!("Branch: task/{}", task.id)}</span>
-                                        <span class="diff-info">"Diffs: +0 -0"</span>
-                                        
-                                        {/* Action buttons for worktree operations */}
-                                        <div class="action-buttons">
-                                            {
-                                                // Comprehensive debug logging
-                                                let worktree_debug = task.worktree_path.clone();
-                                                web_sys::console::log_1(&format!("=== TaskSidebar Debug ===").into());
-                                                web_sys::console::log_1(&format!("Task ID: {}", task.id).into());
-                                                web_sys::console::log_1(&format!("Task Status: {:?}", task.status).into());
-                                                web_sys::console::log_1(&format!("Worktree Path: {:?}", worktree_debug).into());
-                                                web_sys::console::log_1(&format!("on_open_worktree callback present: {}", on_open_worktree.is_some()).into());
-                                                web_sys::console::log_1(&format!("on_open_ide callback present: {}", on_open_ide.is_some()).into());
-                                                
-                                                if let Some(ref path) = worktree_debug {
-                                                    web_sys::console::log_1(&format!("SHOULD RENDER BUTTONS - Path: {}", path).into());
-                                                } else {
-                                                    web_sys::console::log_1(&format!("NO BUTTONS - worktree_path is None").into());
-                                                }
-                                                web_sys::console::log_1(&format!("========================").into());
-                                                
-                                                task.worktree_path.as_ref().map(|worktree_path| {
-                                                let worktree_path_for_files = worktree_path.clone();
-                                                let worktree_path_for_ide = worktree_path.clone();
-                                                {
-                                                    web_sys::console::log_1(&format!("RENDERING WORKTREE BUTTONS for task {}", task.id).into());
-                                                    view! {
-                                                        <div class="worktree-actions">
-                                                            <button 
-                                                            class="action-icon-btn"
-                                                            title="Open Files in Explorer"
-                                                            on:click={
-                                                                let path = worktree_path_for_files.clone();
-                                                                move |_| {
-                                                                    if let Some(ref callback) = on_open_worktree {
-                                                                        callback(path.clone());
-                                                                    }
-                                                                }
-                                                            }
-                                                        >
-                                                            "🖿"
-                                                        </button>
-                                                        <button 
-                                                            class="action-icon-btn"
-                                                            title="Open in VS Code"
-                                                            on:click={
-                                                                let path = worktree_path_for_ide.clone();
-                                                                move |_| {
-                                                                    if let Some(ref callback) = on_open_ide {
-                                                                        callback(path.clone());
-                                                                    }
-                                                                }
-                                                            }
-                                                        >
-                                                            "⚙️"
-                                                        </button>
-                                                        </div>
-                                                    }
-                                                }
-                                            })}
-                                            
-                                            {/* Additional action buttons - placeholder for future features */}
-                                            <div class="additional-actions">
-                                                <button class="action-icon-btn" title="Start Dev Server" disabled=true>"🚀"</button>
-                                                <button class="action-icon-btn" title="Create PR" disabled=true>"🔀"</button>
-                                                <button class="action-icon-btn" title="Merge" disabled=true>"✅"</button>
-                                            </div>
-                                        </div>
+                                        <span class="diff-info">"Diffs: " <span class="diff-added">"+0"</span> " " <span class="diff-removed">"-0"</span></span>
                                     </div>
                                 </div>
+                                
+                                {/* Worktree Actions - Only show for tasks with worktree, outside the attempt block */}
+                                {task.worktree_path.as_ref().map(|worktree_path| {
+                                    let worktree_path_for_files = worktree_path.clone();
+                                    let worktree_path_for_ide = worktree_path.clone();
+                                    view! {
+                                        <div class="worktree-actions">
+                                            <button 
+                                                class="action-btn files-btn"
+                                                title="Open Files in Explorer"
+                                                on:click={
+                                                    let path = worktree_path_for_files.clone();
+                                                    move |_| {
+                                                        if let Some(ref callback) = on_open_worktree {
+                                                            callback(path.clone());
+                                                        }
+                                                    }
+                                                }
+                                            >
+                                                "🖿"
+                                            </button>
+                                            <button 
+                                                class="action-btn ide-btn"
+                                                title="Open in VS Code"
+                                                on:click={
+                                                    let path = worktree_path_for_ide.clone();
+                                                    move |_| {
+                                                        if let Some(ref callback) = on_open_ide {
+                                                            callback(path.clone());
+                                                        }
+                                                    }
+                                                }
+                                            >
+                                                "🟐"
+                                            </button>
+                                            
+                                            {/* Git Actions - TODO: Implement functionality */}
+                                            <button 
+                                                class="action-btn pr-btn"
+                                                title="Create Pull Request (disables worktree)"
+                                                disabled=true
+                                            >
+                                                "🡽" {/* Alternative: 🞑 */}
+                                            </button>
+                                            <button 
+                                                class="action-btn merge-btn"
+                                                title="Merge to Main"
+                                                disabled=true
+                                            >
+                                                "🡺" {/* Alternative: 🞈 */}
+                                            </button>
+                                            <button 
+                                                class="action-btn rebase-btn"
+                                                title="Rebase (Interactive)"
+                                                disabled=true
+                                            >
+                                                "🡿" {/* Alternative: 🞴 */}
+                                            </button>
+                                        </div>
+                                    }
+                                })}
                             }.into_any()
                         }}
                     </div>

@@ -3,9 +3,10 @@ use leptos::html::Dialog;
 use leptos::task::spawn_local;
 use crate::app::AppView;
 use crate::components::ProjectModal;
-use crate::models::Project;
+use crate::models::{Project, Task, TaskStatus};
 use serde_wasm_bindgen::to_value;
 use wasm_bindgen::prelude::*;
+use std::collections::HashMap;
 
 #[wasm_bindgen]
 extern "C" {
@@ -17,11 +18,13 @@ extern "C" {
 pub fn Projects() -> impl IntoView {
     let navigate = use_context::<WriteSignal<AppView>>().expect("navigate context");
     let (projects, set_projects) = signal(Vec::<Project>::new());
+    let (project_task_counts, set_project_task_counts) = signal(HashMap::<String, (usize, usize)>::new());
     let project_modal_ref = NodeRef::<Dialog>::new();
     
     // Load projects from Tauri store on component mount using proper commands
     {
         let set_projects = set_projects.clone();
+        let set_project_task_counts = set_project_task_counts.clone();
         spawn_local(async move {
             let empty_args = serde_json::json!({});
             if let Ok(js_value) = to_value(&empty_args) {
@@ -30,6 +33,32 @@ pub fn Projects() -> impl IntoView {
                         if let Ok(projects_wrapper) = serde_wasm_bindgen::from_value::<Vec<Vec<Project>>>(js_result) {
                             if let Some(stored_projects) = projects_wrapper.first() {
                                 set_projects.set(stored_projects.clone());
+                                
+                                // Load task counts for each project
+                                let mut task_counts = HashMap::new();
+                                for project in stored_projects {
+                                    let project_id = project.id.clone();
+                                    let load_args = serde_json::json!({ "project_id": project_id });
+                                    if let Ok(js_value) = to_value(&load_args) {
+                                        match invoke("load_tasks_data", js_value).await {
+                                            js_result if !js_result.is_undefined() => {
+                                                if let Ok(tasks) = serde_wasm_bindgen::from_value::<Vec<Task>>(js_result) {
+                                                    let total_tasks = tasks.len();
+                                                    let in_progress_count = tasks.iter()
+                                                        .filter(|task| matches!(task.status, TaskStatus::InProgress))
+                                                        .count();
+                                                    task_counts.insert(project_id, (total_tasks, in_progress_count));
+                                                } else {
+                                                    task_counts.insert(project_id, (0, 0));
+                                                }
+                                            }
+                                            _ => {
+                                                task_counts.insert(project_id, (0, 0));
+                                            }
+                                        }
+                                    }
+                                }
+                                set_project_task_counts.set(task_counts);
                             }
                         }
                     }
@@ -98,13 +127,19 @@ pub fn Projects() -> impl IntoView {
                                 "New Repository" 
                             };
                             
+                            // Get task counts from the signal
+                            let task_counts = project_task_counts.get();
+                            let (total_tasks, in_progress_count) = task_counts.get(&project.id)
+                                .copied()
+                                .unwrap_or((0, 0));
+                            
                             view! {
                                 <div class="project-card" on:click=move |_| open_project(&project_id)>
                                     <h3>{project_name}</h3>
                                     <p>{git_status}</p>
                                     <div class="project-stats">
-                                        <span>"0 tasks"</span>
-                                        <span>"0 in progress"</span>
+                                        <span>{format!("{} tasks", total_tasks)}</span>
+                                        <span>{format!("{} in progress", in_progress_count)}</span>
                                     </div>
                                 </div>
                             }

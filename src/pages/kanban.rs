@@ -21,14 +21,14 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     let project_id_for_sidebar = project_id.clone();
     let project_id_for_mobile = project_id.clone();
     let project_id_for_dropdown = project_id.clone();
-    
+
     // Get the navigation signal from context - this allows us to change the current view
     // The expect() will panic if the context wasn't provided, which helps catch setup errors
     let navigate = use_context::<WriteSignal<AppView>>().expect("navigate context");
-    
+
     // Project name signal
     let (project_name, set_project_name) = signal(String::from("Loading..."));
-    
+
     // Load project name from store using proper Tauri commands
     {
         let project_id_clone = project_id.clone();
@@ -57,11 +57,11 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             }
         });
     }
-    
+
     // Create a reactive signal to hold the tasks list
     // Signal automatically triggers re-renders when the data changes
     let (tasks, set_tasks) = signal(Vec::<Task>::new());
-    
+
     // Load project-specific tasks from storage
     {
         let project_id_clone = project_id_for_tasks.clone();
@@ -86,23 +86,23 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             }
         });
     }
-    
+
     // Simple save function for tasks (we'll implement auto-save later)
     // For now, tasks will be saved when creating new tasks via TaskModal
-    
+
     // Create a signal to track which task is currently selected for the sidebar
     // None means no sidebar is open, Some(task) means sidebar is showing that task
     let (selected_task, set_selected_task) = signal::<Option<Task>>(None);
-    
+
     // Track which dropdown is currently open (task ID)
     let (open_dropdown, set_open_dropdown) = signal::<Option<String>>(None);
-    
+
     // Create references to the HTML dialog elements that we can use to control them
     // from Rust code (open/close modals programmatically)
     let dialog_ref: NodeRef<Dialog> = NodeRef::new();
     let edit_dialog_ref: NodeRef<Dialog> = NodeRef::new();
     let edit_project_dialog_ref: NodeRef<Dialog> = NodeRef::new();
-    
+
     // Track which task is being edited
     let (editing_task, set_editing_task) = signal::<Option<Task>>(None);
 
@@ -111,7 +111,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
         // Change the app view back to the Projects page
         navigate.set(AppView::Projects);
     };
-    
+
     // Handler for the "+" button to open the task creation modal
     let open_modal = move |_| {
         // Get the dialog DOM element and call show_modal() to display it as a modal
@@ -121,14 +121,14 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             let _ = dialog.show_modal();
         }
     };
-    
+
     // Handler to open the edit project modal
     let open_edit_project_modal = move |_| {
         if let Some(dialog) = edit_project_dialog_ref.get() {
             let _ = dialog.show_modal();
         }
     };
-    
+
     // Handler for when project is updated
     let update_project = {
         let set_project_name = set_project_name.clone();
@@ -136,7 +136,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             set_project_name.set(updated_project.name);
         })
     };
-    
+
     // Callback function that gets called when TaskModal creates a new task
     // This function takes ownership of the Task and adds it to the kanban board
     let create_task = {
@@ -148,7 +148,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             set_tasks.update(|tasks| {
                 tasks.push(task);
             });
-            
+
             // Save tasks to storage using proper Tauri commands
             let project_id = project_id.clone();
             let tasks = tasks.clone();
@@ -158,10 +158,10 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 let json_tasks: Vec<serde_json::Value> = current_tasks.iter()
                     .filter_map(|t| serde_json::to_value(t).ok())
                     .collect();
-                
-                let save_args = serde_json::json!({ 
+
+                let save_args = serde_json::json!({
                     "projectId": project_id,
-                    "tasks": json_tasks 
+                    "tasks": json_tasks
                 });
                 if let Ok(js_value) = to_value(&save_args) {
                     let _ = invoke("save_tasks_data", js_value).await;
@@ -171,17 +171,17 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     };
 
     // Task management functions are now inlined where they're used
-    
+
     // Handler for when a task is clicked - opens the sidebar with task details
     let select_task = move |task: Task| {
         set_selected_task.set(Some(task));
     };
-    
+
     // No need for separate close handler - TaskSidebar will use the signal directly
 
     view! {
-        <div 
-            class="kanban-page" 
+        <div
+            class="kanban-page"
             class:with-sidebar=move || selected_task.with(|task| task.is_some())
             on:click=move |_| {
                 // Close any open dropdown when clicking outside
@@ -192,11 +192,11 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 <header class="kanban-header">
                 <h1>"Project: " {project_name}</h1>
                 <div class="kanban-actions">
-                    <button class="btn-secondary" on:click=back_to_projects>"←"</button>
-                    <button class="btn-secondary" on:click=open_edit_project_modal>"✎"</button>
-                    <button class="btn-primary" on:click=open_modal>"+"</button>
-                    <button 
-                        class="btn-secondary"
+                    <button class="btn-secondary kanban-header-btn" on:click=back_to_projects>"🡄"</button>
+                    <button class="btn-secondary kanban-header-btn" on:click=open_edit_project_modal>"✎"</button>
+                    <button class="btn-primary kanban-header-btn" on:click=open_modal>"🞦"</button>
+                    <button
+                        class="btn-secondary kanban-header-btn"
                         on:click={
                             let project_id_for_delete = project_id.clone();
                             let set_view = use_context::<WriteSignal<crate::app::AppView>>()
@@ -217,16 +217,16 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                         if let Some(mut projects) = projects_wrapper.into_iter().next() {
                                                             // Remove the project
                                                             projects.retain(|p| p.id != project_id_to_delete);
-                                                            
+
                                                             // Save updated projects
                                                             let projects_json: Vec<serde_json::Value> = projects.into_iter()
                                                                 .map(|project| serde_json::to_value(project).unwrap_or_default())
                                                                 .collect();
-                                                            
+
                                                             let save_args = serde_json::json!({
                                                                 "projects": projects_json
                                                             });
-                                                            
+
                                                             if let Ok(save_js_value) = to_value(&save_args) {
                                                                 match invoke("save_projects_data", save_js_value).await {
                                                                     js_result if !js_result.is_undefined() => {
@@ -253,22 +253,22 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                         }
                         title="Delete Project"
                     >
-                        "🗑"
+                        "🞮"
                     </button>
                 </div>
             </header>
-            
+
             <div class="kanban-board">
                 {TaskStatus::all().into_iter().map(|status| {
                     // Clone status for each closure to avoid move errors
                     // Each reactive closure needs its own copy to filter by status
                     let status_for_count = status.clone();
                     let status_for_tasks = status.clone();
-                    
+
                     // Clone project_ids for use within this map closure
                     let project_id_mobile = project_id_for_mobile.clone();
                     let project_id_dropdown = project_id_for_dropdown.clone();
-                    
+
                     view! {
                         <div class="kanban-column">
                             <div class="column-header">
@@ -297,9 +297,9 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                 let task_id_for_dropdown_open = task.id.clone();
                                                 let task_id_for_dropdown_show = task.id.clone();
                                                 let select_task_handler = select_task.clone();
-                                                
+
                                                 view! {
-                                                    <div 
+                                                    <div
                                                         class="task-card clickable"
                                                         class:dropdown-open=move || open_dropdown.get() == Some(task_id_for_dropdown_open.clone())
                                                         on:click=move |_| {
@@ -315,10 +315,10 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                 let task_id = task.id.clone();
                                                                 let open_dropdown_clone = open_dropdown.clone();
                                                                 let set_open_dropdown_clone = set_open_dropdown.clone();
-                                                                
+
                                                                 view! {
                                                                     // Desktop dropdown button
-                                                                    <button 
+                                                                    <button
                                                                         class="task-menu-btn"
                                                                         on:click=move |e| {
                                                                             e.stop_propagation();
@@ -330,10 +330,10 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                             }
                                                                         }
                                                                     >"⋯"</button>
-                                                                    
+
                                                                     // Mobile action buttons (hidden by default, shown on mobile via CSS)
                                                                     <div class="task-actions-mobile" style="display: none;">
-                                                                        <button 
+                                                                        <button
                                                                             class="task-action-btn edit-btn"
                                                                             on:click={
                                                                                 let task_for_mobile_edit = task.clone();
@@ -348,7 +348,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                 }
                                                                             }
                                                                         >"✎"</button>
-                                                                        <button 
+                                                                        <button
                                                                             class="task-action-btn cancel-btn"
                                                                             on:click={
                                                                                 let task_id_mobile_cancel = task.id.clone();
@@ -365,7 +365,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                 }
                                                                             }
                                                                         >"⚠"</button>
-                                                                        <button 
+                                                                        <button
                                                                             class="task-action-btn delete-btn"
                                                                             on:click={
                                                                                 let task_id_mobile_delete = task.id.clone();
@@ -375,12 +375,12 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                     e.stop_propagation();
                                                                                     set_tasks_mobile_delete.update(|tasks| {
                                                                                         tasks.retain(|t| t.id != task_id_mobile_delete);
-                                                                                        
+
                                                                                         // Save updated tasks to storage after deletion
                                                                                         let tasks_json: Vec<serde_json::Value> = tasks.iter()
                                                                                             .map(|task| serde_json::to_value(task).unwrap_or_default())
                                                                                             .collect();
-                                                                                        
+
                                                                                         let project_id_for_save = project_id_mobile_delete.clone();
                                                                                         let task_id_for_log = task_id_mobile_delete.clone();
                                                                                         spawn_local(async move {
@@ -388,7 +388,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                                 "projectId": project_id_for_save,
                                                                                                 "tasks": tasks_json
                                                                                             });
-                                                                                            
+
                                                                                             if let Ok(save_js_value) = to_value(&save_args) {
                                                                                                 match invoke("save_tasks_data", save_js_value).await {
                                                                                                     js_result if !js_result.is_undefined() => {
@@ -407,15 +407,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                     </div>
                                                                 }
                                                             }
-                                                            
+
                                                             // Desktop dropdown menu
-                                                            <div 
+                                                            <div
                                                                 class="task-dropdown"
                                                                 class:show=move || open_dropdown.get() == Some(task_id_for_dropdown_show.clone())
                                                             >
                                                                 {
                                                                     view! {
-                                                                        <button 
+                                                                        <button
                                                                             class="dropdown-item edit-item"
                                                                             on:click={
                                                                                 let task_for_dropdown_edit = task.clone();
@@ -432,7 +432,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                 }
                                                                             }
                                                                         >"Edit"</button>
-                                                                        <button 
+                                                                        <button
                                                                             class="dropdown-item cancel-item"
                                                                             on:click={
                                                                                 let task_id_dropdown_cancel = task.id.clone();
@@ -449,7 +449,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                 }
                                                                             }
                                                                         >"Cancel"</button>
-                                                                        <button 
+                                                                        <button
                                                                             class="dropdown-item delete-item"
                                                                             on:click={
                                                                                 let task_id_dropdown_delete = task.id.clone();
@@ -461,12 +461,12 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                     set_open_dropdown_delete.set(None); // Close dropdown
                                                                                     set_tasks_dropdown_delete.update(|tasks| {
                                                                                         tasks.retain(|t| t.id != task_id_dropdown_delete);
-                                                                                        
+
                                                                                         // Save updated tasks to storage after deletion
                                                                                         let tasks_json: Vec<serde_json::Value> = tasks.iter()
                                                                                             .map(|task| serde_json::to_value(task).unwrap_or_default())
                                                                                             .collect();
-                                                                                        
+
                                                                                         let project_id_for_save = project_id_dropdown_delete.clone();
                                                                                         let task_id_for_log = task_id_dropdown_delete.clone();
                                                                                         spawn_local(async move {
@@ -474,7 +474,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                                 "projectId": project_id_for_save,
                                                                                                 "tasks": tasks_json
                                                                                             });
-                                                                                            
+
                                                                                             if let Ok(save_js_value) = to_value(&save_args) {
                                                                                                 match invoke("save_tasks_data", save_js_value).await {
                                                                                                     js_result if !js_result.is_undefined() => {
@@ -506,7 +506,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 }).collect::<Vec<_>>()}
             </div>
             </div> {/* Close main-content */}
-            
+
             {/* Conditional Sidebar - only shows when a task is selected */}
             {
                 let project_id_for_sidebar_use = project_id_for_sidebar.clone();
@@ -532,18 +532,18 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                 // Clone data before mutable borrow
                                 let task_id_for_save = task_id.clone();
                                 let project_id_for_immediate_save = project_id_for_worktree.clone();
-                                
+
                                 set_tasks_for_status.update(|tasks| {
                                     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
                                         let old_status = task.status.clone();
                                         task.update_status(status.clone());
-                                        
+
                                         // If task is moving to InProgress, create a worktree
                                         if status == TaskStatus::InProgress && old_status != TaskStatus::InProgress {
                                             let task_id_clone = task_id.clone();
                                             let project_id_clone = project_id_for_worktree.clone();
                                             let set_tasks_clone = set_tasks_for_status.clone();
-                                            
+
                                             spawn_local(async move {
                                                 // First, get the project path from storage
                                                 let empty_args = serde_json::json!({});
@@ -558,20 +558,20 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                             "projectPath": project.project_path,
                                                                             "taskId": task_id_clone
                                                                         });
-                                                                        
+
                                                                         web_sys::console::log_1(&format!("Creating worktree for task {}", task_id_clone).into());
-                                                                        
+
                                                                         if let Ok(create_js_value) = to_value(&create_args) {
                                                                             match invoke("create_task_worktree", create_js_value).await {
                                                                                 js_result if !js_result.is_undefined() => {
                                                                                     match serde_wasm_bindgen::from_value::<String>(js_result) {
                                                                                         Ok(worktree_path) => {
                                                                                             web_sys::console::log_1(&format!("Worktree created successfully at: {}", worktree_path).into());
-                                                                                            
+
                                                                                             // Update task with worktree path and save
                                                                                             let _task_id_for_save = task_id_clone.clone();
                                                                                             let project_id_for_save = project_id_clone.clone();
-                                                                                            
+
                                                                                             let mut tasks_for_save = Vec::new();
                                                                                             set_tasks_clone.update(|tasks| {
                                                                                                 if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id_clone) {
@@ -583,18 +583,18 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                                 }
                                                                                                 tasks_for_save = tasks.clone();
                                                                                             });
-                                                                                            
+
                                                                                             // Save updated tasks to storage
                                                                                             let tasks_json: Vec<serde_json::Value> = tasks_for_save.into_iter()
                                                                                                 .map(|task| serde_json::to_value(task).unwrap_or_default())
                                                                                                 .collect();
-                                                                                            
+
                                                                                             spawn_local(async move {
                                                                                                 let save_args = serde_json::json!({
                                                                                                     "projectId": project_id_for_save,
                                                                                                     "tasks": tasks_json
                                                                                                 });
-                                                                                                
+
                                                                                                 if let Ok(save_js_value) = to_value(&save_args) {
                                                                                                     match invoke("save_tasks_data", save_js_value).await {
                                                                                                         js_result if !js_result.is_undefined() => {
@@ -630,7 +630,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                 }
                                             });
                                         }
-                                        
+
                                         // If task is moving away from InProgress (to Done/Cancelled), remove worktree
                                         if (status == TaskStatus::Done || status == TaskStatus::Cancelled) && old_status == TaskStatus::InProgress {
                                             if let Some(worktree_path) = &task.worktree_path {
@@ -638,9 +638,9 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                 let task_id_clone = task_id.clone();
                                                 let project_id_clone = project_id_for_worktree.clone();
                                                 let set_tasks_clone = set_tasks_for_status.clone();
-                                                
+
                                                 web_sys::console::log_1(&format!("Removing worktree for completed task: {}", task_id_clone).into());
-                                                
+
                                                 spawn_local(async move {
                                                     // First get project path for cleanup
                                                     let empty_args = serde_json::json!({});
@@ -654,14 +654,14 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                 "worktreePath": worktree_path_clone,
                                                                                 "projectPath": project.project_path
                                                                             });
-                                                                            
+
                                                                             if let Ok(remove_js_value) = to_value(&remove_args) {
                                                                                 match invoke("remove_task_worktree", remove_js_value).await {
                                                                                     js_result if !js_result.is_undefined() => {
                                                                                         match serde_wasm_bindgen::from_value::<Result<String, String>>(js_result) {
                                                                                             Ok(Ok(_)) => {
                                                                                                 web_sys::console::log_1(&format!("Worktree removed successfully for task: {}", task_id_clone).into());
-                                                                                                
+
                                                                                                 // Update task to remove worktree path and save
                                                                                                 let mut tasks_for_save = Vec::new();
                                                                                                 set_tasks_clone.update(|tasks| {
@@ -670,17 +670,17 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                                     }
                                                                                                     tasks_for_save = tasks.clone();
                                                                                                 });
-                                                                                                
+
                                                                                                 // Save updated tasks to storage
                                                                                                 let tasks_json: Vec<serde_json::Value> = tasks_for_save.into_iter()
                                                                                                     .map(|task| serde_json::to_value(task).unwrap_or_default())
                                                                                                     .collect();
-                                                                                                
+
                                                                                                 let save_args = serde_json::json!({
                                                                                                     "projectId": project_id_clone,
                                                                                                     "tasks": tasks_json
                                                                                                 });
-                                                                                                
+
                                                                                                 if let Ok(save_js_value) = to_value(&save_args) {
                                                                                                     match invoke("save_tasks_data", save_js_value).await {
                                                                                                         js_result if !js_result.is_undefined() => {
@@ -719,7 +719,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                         }
                                     }
                                 });
-                                
+
                                 // Save status change immediately to storage
                                 tasks_for_status.with(|tasks| {
                                     let tasks_for_immediate_save = tasks.clone();
@@ -727,12 +727,12 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                         let tasks_json: Vec<serde_json::Value> = tasks_for_immediate_save.into_iter()
                                             .map(|task| serde_json::to_value(task).unwrap_or_default())
                                             .collect();
-                                        
+
                                         let save_args = serde_json::json!({
                                             "projectId": project_id_for_immediate_save,
                                             "tasks": tasks_json
                                         });
-                                        
+
                                         if let Ok(save_js_value) = to_value(&save_args) {
                                             match invoke("save_tasks_data", save_js_value).await {
                                                 js_result if !js_result.is_undefined() => {
@@ -754,19 +754,19 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                             Box::new(move |task_id: String| {
                                 set_tasks_for_delete.update(|tasks| {
                                     tasks.retain(|t| t.id != task_id);
-                                    
+
                                     // Save updated tasks to storage after deletion
                                     let tasks_json: Vec<serde_json::Value> = tasks.iter()
                                         .map(|task| serde_json::to_value(task).unwrap_or_default())
                                         .collect();
-                                    
+
                                     let project_id_for_save = project_id_for_delete.clone();
                                     spawn_local(async move {
                                         let save_args = serde_json::json!({
                                             "projectId": project_id_for_save,
                                             "tasks": tasks_json
                                         });
-                                        
+
                                         if let Ok(save_js_value) = to_value(&save_args) {
                                             match invoke("save_tasks_data", save_js_value).await {
                                                 js_result if !js_result.is_undefined() => {
@@ -789,7 +789,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                     let open_args = serde_json::json!({
                                         "worktreePath": worktree_path.clone()
                                     });
-                                    
+
                                     if let Ok(open_js_value) = to_value(&open_args) {
                                         match invoke("open_worktree_location", open_js_value).await {
                                             js_result if !js_result.is_undefined() => {
@@ -821,7 +821,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                     let open_args = serde_json::json!({
                                         "worktreePath": worktree_path.clone()
                                     });
-                                    
+
                                     if let Ok(open_js_value) = to_value(&open_args) {
                                         match invoke("open_worktree_in_ide", open_js_value).await {
                                             js_result if !js_result.is_undefined() => {
@@ -847,7 +847,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                         };
 
                         view! {
-                            <TaskSidebar 
+                            <TaskSidebar
                                 task=task.clone()
                                 selected_task=set_selected_task
                                 on_edit=sidebar_edit_callback
@@ -863,13 +863,13 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 })
             }
             }
-            
-            <TaskModal 
+
+            <TaskModal
                 project_id=project_id.clone()
                 on_create=create_task
                 dialog_ref=dialog_ref
             />
-            
+
             {/* Edit Task Modal - always rendered but only shown when editing_task is Some */}
             {move || {
                 if let Some(task) = editing_task.get() {
@@ -884,9 +884,9 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                             });
                         }) as Box<dyn Fn(String, String, String) + 'static>
                     };
-                    
+
                     view! {
-                        <EditTaskModal 
+                        <EditTaskModal
                             task=task
                             on_edit=edit_callback
                             dialog_ref=edit_dialog_ref
@@ -896,7 +896,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     view! {}.into_any()
                 }
             }}
-            
+
             <EditProjectModal
                 project_id=project_id
                 on_update=update_project

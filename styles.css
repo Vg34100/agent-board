@@ -625,6 +625,55 @@ body {
   color: #ff4444;
 }
 
+/* Worktree Action Button Colors */
+.files-btn:hover {
+  background: #1a3a5c;
+  color: #4a9eff;
+}
+
+.ide-btn:hover {
+  background: #1a5c1a;
+  color: #44ff44;
+}
+
+/* Git Action Button Colors */
+.pr-btn:hover {
+  background: #3a1a5c;
+  color: #9a44ff;
+}
+
+.merge-btn:hover {
+  background: #5c3a1a;
+  color: #ff9a44;
+}
+
+.rebase-btn:hover {
+  background: #5c1a3a;
+  color: #ff4499;
+}
+
+/* Diff Text Colors */
+.diff-added {
+  color: #44ff44;
+}
+
+.diff-removed {
+  color: #ff4444;
+}
+
+/* Worktree Actions Layout */
+.worktree-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* Kanban Header Button Styling - Larger Icons */
+.kanban-header-btn {
+  font-size: 18px !important;
+}
+
 .sidebar-close {
   background: transparent;
   border: none;
