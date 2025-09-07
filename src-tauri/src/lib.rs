@@ -112,21 +112,69 @@ async fn initialize_git_repo(project_path: String) -> Result<String, String> {
     }
     
     // Initialize git repository using git command
-    let output = std::process::Command::new("git")
+    let init_output = std::process::Command::new("git")
         .args(&["init"])
         .current_dir(&path)
         .output();
     
-    match output {
+    match init_output {
         Ok(output) => {
-            if output.status.success() {
-                Ok("Git repository initialized successfully".to_string())
-            } else {
+            if !output.status.success() {
                 let error = String::from_utf8_lossy(&output.stderr);
-                Err(format!("Git init failed: {}", error))
+                return Err(format!("Git init failed: {}", error));
             }
         }
-        Err(e) => Err(format!("Failed to run git init: {}", e)),
+        Err(e) => return Err(format!("Failed to run git init: {}", e)),
+    }
+    
+    // Create initial README.md file
+    let project_name = path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("New Project");
+    
+    let readme_content = format!(
+        "# {}\n\nThis project was created using Agent Board.\n\n## Getting Started\n\nThis is a new project workspace created automatically by Agent Board for managing development tasks and AI coding agents.\n",
+        project_name
+    );
+    
+    let readme_path = path.join("README.md");
+    match fs::write(&readme_path, readme_content) {
+        Ok(_) => {},
+        Err(e) => return Err(format!("Failed to create README.md: {}", e)),
+    }
+    
+    // Add README.md to git
+    let add_output = std::process::Command::new("git")
+        .args(&["add", "README.md"])
+        .current_dir(&path)
+        .output();
+        
+    match add_output {
+        Ok(output) => {
+            if !output.status.success() {
+                let error = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("Git add failed: {}", error));
+            }
+        }
+        Err(e) => return Err(format!("Failed to run git add: {}", e)),
+    }
+    
+    // Create initial commit
+    let commit_output = std::process::Command::new("git")
+        .args(&["commit", "-m", "Initial commit: Add README.md"])
+        .current_dir(&path)
+        .output();
+        
+    match commit_output {
+        Ok(output) => {
+            if output.status.success() {
+                Ok("Git repository initialized successfully with initial commit".to_string())
+            } else {
+                let error = String::from_utf8_lossy(&output.stderr);
+                Err(format!("Git commit failed: {}", error))
+            }
+        }
+        Err(e) => Err(format!("Failed to run git commit: {}", e)),
     }
 }
 

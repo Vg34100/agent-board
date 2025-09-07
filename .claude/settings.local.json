@@ -10,7 +10,8 @@
       "Bash(git branch:*)",
       "WebSearch",
       "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:v2.tauri.app)"
+      "WebFetch(domain:v2.tauri.app)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

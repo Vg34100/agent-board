@@ -11,7 +11,7 @@ Last created to-dos
   ✓ Create and connect ProjectModal component (Project must be set to a folder location with a .git folder set up) - COMPLETED
   ✓ Implement data persistence with localStorage - COMPLETED
 MAJOR GOALS:
-  ☐ Implement git worktree integration (Each task, once started, should create a temporary worktree in some temperory location [if thats not automatic when you make a worktree], with a button to open file location)
+  ☐ Implement git worktree integration (Each task, once started, should create a temporary worktree in some temperory location [if thats not automatic when you make a worktree, im not sure], with a button to open file location [within the side bar somewhere])
 MINOR ADDITIONS
   ☐ Add tabbed sidebar [Instead of showcasing the Agent Chat only in the sidebar (when a task is selected so that the sidebar is active), make it two tabs where the default will be the same Agent Chat view, but the 2nd tab will be a 'Diff' view, that will showcase the files and their diffs, like in the github kinda format for each file within the worktree](Agent Chat / Diffs [only visible in boards 'In Progress' and onward])
   ☐ Add delete board action in kanban view top right (alongside back to proejcts, edit, and add task) so there is a way to delete a board. Make sure there is a confirmation window
