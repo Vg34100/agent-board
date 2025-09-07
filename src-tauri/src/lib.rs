@@ -189,26 +189,78 @@ async fn save_tasks_data(app: tauri::AppHandle, project_id: String, tasks: Vec<s
 }
 
 #[tauri::command]
-async fn create_task_worktree(project_path: String, task_id: String) -> Result<String, String> {
-    match git::create_worktree(&project_path, &task_id) {
-        Ok(worktree) => Ok(worktree.path.to_string_lossy().to_string()),
-        Err(e) => Err(e)
+async fn create_task_worktree(app: tauri::AppHandle, project_path: String, task_id: String) -> Result<String, String> {
+    println!("Tauri command: create_task_worktree called with project_path='{}', task_id='{}'", project_path, task_id);
+    match git::create_worktree(&app, &project_path, &task_id) {
+        Ok(worktree) => {
+            let path_str = worktree.path.to_string_lossy().to_string();
+            println!("Tauri command: create_task_worktree succeeded, returning path: {}", path_str);
+            Ok(path_str)
+        },
+        Err(e) => {
+            println!("Tauri command: create_task_worktree failed with error: {}", e);
+            Err(e)
+        }
     }
 }
 
 #[tauri::command]
-async fn remove_task_worktree(worktree_path: String) -> Result<String, String> {
-    match git::remove_worktree(&worktree_path) {
-        Ok(_) => Ok("Worktree removed successfully".to_string()),
-        Err(e) => Err(e)
+async fn remove_task_worktree(app: tauri::AppHandle, worktree_path: String, project_path: String) -> Result<String, String> {
+    println!("Tauri command: remove_task_worktree called with worktree_path='{}', project_path='{}'", worktree_path, project_path);
+    match git::remove_worktree(&app, &worktree_path, &project_path) {
+        Ok(_) => {
+            println!("Tauri command: remove_task_worktree succeeded");
+            Ok("Worktree removed successfully".to_string())
+        },
+        Err(e) => {
+            println!("Tauri command: remove_task_worktree failed with error: {}", e);
+            Err(e)
+        }
     }
 }
 
 #[tauri::command]
 async fn open_worktree_location(worktree_path: String) -> Result<String, String> {
+    println!("Tauri command: open_worktree_location called with worktree_path='{}'", worktree_path);
     match git::open_worktree_location(&worktree_path) {
-        Ok(_) => Ok("File manager opened successfully".to_string()),
-        Err(e) => Err(e)
+        Ok(_) => {
+            println!("Tauri command: open_worktree_location succeeded");
+            Ok("File manager opened successfully".to_string())
+        },
+        Err(e) => {
+            println!("Tauri command: open_worktree_location failed with error: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn open_worktree_in_ide(worktree_path: String) -> Result<String, String> {
+    println!("Tauri command: open_worktree_in_ide called with worktree_path='{}'", worktree_path);
+    match git::open_worktree_in_ide(&worktree_path) {
+        Ok(_) => {
+            println!("Tauri command: open_worktree_in_ide succeeded");
+            Ok("IDE opened successfully".to_string())
+        },
+        Err(e) => {
+            println!("Tauri command: open_worktree_in_ide failed with error: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn list_app_worktrees(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    println!("Tauri command: list_app_worktrees called");
+    match git::list_app_worktrees(&app) {
+        Ok(worktrees) => {
+            println!("Tauri command: list_app_worktrees succeeded, found {} worktrees", worktrees.len());
+            Ok(worktrees)
+        },
+        Err(e) => {
+            println!("Tauri command: list_app_worktrees failed with error: {}", e);
+            Err(e)
+        }
     }
 }
 
@@ -217,7 +269,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
