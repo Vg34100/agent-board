@@ -97,6 +97,31 @@ body {
 - Enable incremental compilation (default in dev)
 - Use `--release` flag only for final builds
 
+## Project Persistence Issues
+
+### Problem: Projects not saving/loading
+**Symptoms**: 
+- Projects disappear after navigation
+- Kanban shows "PROJECT: LOADING..." permanently
+- Empty project list despite creating projects
+
+**Solutions**:
+1. **Check Tauri command registration**: Ensure all commands are in `generate_handler![]`
+2. **Verify parameter naming**: Frontend JSON must match backend function parameters exactly
+3. **Check store permissions**: Tauri store plugin needs proper setup in `Cargo.toml`
+4. **Debug with browser dev tools**: Check console for JS errors from Tauri calls
+
+### Problem: Tasks not persisting per project
+**Symptoms**:
+- All projects show the same tasks
+- Tasks disappear when switching projects
+- Hardcoded sample data appears
+
+**Solutions**:
+1. **Verify file naming**: Should use `tasks_{project_id}.json` format
+2. **Check task loading logic**: Load tasks on component mount with project-specific filename
+3. **Ensure save callback**: TaskModal creation should trigger save operation
+
 ## When All Else Fails
 
 1. **Clean rebuild**: `cargo clean && cargo tauri dev`
@@ -104,3 +129,4 @@ body {
 3. **Minimal reproduction**: Comment out problematic code, add back gradually
 4. **Check examples**: Look at official Leptos examples for patterns
 5. **Read the error**: Rust error messages are usually helpful - read them carefully
+6. **Verify Tauri setup**: Check `src-tauri/tauri.conf.json` for proper plugin configuration

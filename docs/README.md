@@ -26,25 +26,36 @@ This documentation captures the complete development process, current status, an
    - Hot reload issues and fixes
    - Component and CSS troubleshooting
 
-## 🚀 Current Status: MVP Working
+5. **[store.md](./store.md)** - Data Persistence Guide ⭐ NEW
+   - Complete Tauri store API implementation guide
+   - What was broken vs what works now
+   - Critical fix for project/task persistence
+
+## 🚀 Current Status: FULLY FUNCTIONAL ✨
 
 ### ✅ Completed Features
 - Tauri + Leptos app running successfully
-- Projects page with navigation to kanban boards
+- Projects page with navigation to kanban boards  
 - 5-column kanban layout (ToDo → InProgress → InReview → Done → Cancelled)
-- Sample data displaying in columns
+- **Complete data persistence** - projects and tasks save between sessions
+- **Working project creation** - create projects with git initialization
+- **Working task creation** - add tasks that persist to storage
+- **Project editing** - edit existing projects with pre-populated data
+- **Task editing and management** - edit/delete/cancel tasks with dropdown menus
 - Square, minimal, programmer-focused UI design
 - Full-width layout with monospace fonts
 - Context-based navigation system
+- **Proper Tauri store API implementation** ⭐ MAJOR FIX
 
-### 🔥 Critical Blocker
-**TaskModal callback types** - The "+" button for adding tasks doesn't work due to Leptos component callback type issues. This must be fixed before any other development can continue.
+### 🎉 Major System Fix Complete
+**Store API Modernization** - Fixed the critical persistence system that was completely broken. Projects now save, tasks persist between sessions, and the "Loading..." header issue is resolved. See [store.md](./store.md) for technical details.
 
 ### 🎯 Next Phase Goals
-1. Fix TaskModal callback integration
-2. Implement task creation functionality
-3. Add project creation modal
-4. Implement localStorage data persistence
+1. ✅ COMPLETED - Project persistence and task storage  
+2. Add drag & drop for task status changes
+3. Implement git worktree integration
+4. Add system tray functionality
+5. Implement agent chat interface
 
 ## 🛠️ Quick Start Commands
 

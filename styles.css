@@ -281,6 +281,17 @@ body {
   background: rgba(0, 0, 0, 0.8);
 }
 
+/* Generic modal styles */
+.modal {
+  background: rgba(0, 0, 0, 0.8);
+  border: none;
+  padding: 0;
+}
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.8);
+}
+
 .modal-content {
   background: #2a2a2a;
   border: 1px solid #333;
@@ -297,13 +308,17 @@ body {
   background: #1a1a1a;
 }
 
+.modal-header h2,
 .modal-header h3 {
   margin: 0;
+  color: #ffffff; /* Make modal header text white */
+}
+
+.modal-header h3 {
   font-size: 12px;
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #ffffff; /* Make modal header text white */
 }
 
 .modal-close {
@@ -339,7 +354,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 6px;
-  color: #888;
+  color: #ffffff;
 }
 
 .form-group input,
@@ -1153,4 +1168,349 @@ body {
   }
   
   /* Vertical stacking is already handled in the kanban-board section above */
+}
+
+/* Project Modal Specific Styles */
+.project-modal {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: auto;
+  z-index: 1001;
+  max-width: none;
+  max-height: none;
+  width: 600px;
+}
+
+.project-modal::backdrop {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.project-modal .modal-content {
+  background: #2a2a2a;
+  border: 1px solid #333;
+  width: 600px;
+  max-width: 90vw;
+}
+
+.project-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 16px 14px 16px;
+  border-bottom: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.project-modal .modal-header h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal-subheader {
+  padding: 8px 16px 12px 16px;
+  border-bottom: 1px solid #333;
+  background: #2a2a2a;
+}
+
+.modal-subheader h3 {
+  margin: 0;
+  color: #aaa;
+  font-size: 14px;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.source-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 16px;
+}
+
+.source-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.source-option:hover {
+  background: #333;
+  border-color: #007acc;
+}
+
+.source-icon {
+  font-size: 32px;
+  min-width: 48px;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.source-content h3 {
+  margin: 0 0 8px 0;
+  color: #e0e0e0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.source-content p {
+  margin: 0;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.modal-nav {
+  padding: 8px 16px;
+  border-bottom: 1px solid #333;
+  background: #1e1e1e;
+}
+
+.back-button {
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  font-family: inherit;
+}
+
+.back-button:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+.directory-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.directory-input input {
+  flex: 1;
+}
+
+.browse-button {
+  background: #444;
+  border: 1px solid #666;
+  color: #ffffff;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.browse-button:hover {
+  background: #555;
+}
+
+.form-help {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  color: #888;
+  grid-column: 1 / -1; /* Span full width of grid */
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Directory Browser Styles */
+.directory-browser {
+  padding: 16px;
+}
+
+.manual-path, .search-directory {
+  margin-bottom: 16px;
+}
+
+.manual-path label, .search-directory label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.manual-path input, .search-directory input {
+  width: 100%;
+  background: #333;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 0;
+  outline: none;
+}
+
+.manual-path input:focus, .search-directory input:focus {
+  border-color: #555;
+  background: #404040;
+}
+
+.path-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.path-input input {
+  flex: 1;
+}
+
+.go-button {
+  background: #007acc;
+  border: 1px solid #007acc;
+  color: white;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.1s ease;
+}
+
+.go-button:hover {
+  background: #0099ff;
+  border-color: #0099ff;
+}
+
+.directory-navigation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.nav-button {
+  background: #444;
+  border: 1px solid #666;
+  color: #e0e0e0;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.nav-button:hover {
+  background: #555;
+}
+
+.current-path {
+  flex: 1;
+  margin: 0 12px;
+  color: #e0e0e0;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.select-current-button {
+  background: #007acc;
+  border: 1px solid #007acc;
+  color: white;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.1s ease;
+}
+
+.select-current-button:hover {
+  background: #0099ff;
+  border-color: #0099ff;
+}
+
+.folder-list {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  min-height: 300px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.folder-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #333;
+  color: #e0e0e0;
+  font-size: 14px;
+}
+
+.folder-item:last-child {
+  border-bottom: none;
+}
+
+.folder-item:hover {
+  background: #2a2a2a;
+}
+
+.folder-item.is-directory {
+  cursor: pointer;
+}
+
+.folder-item.empty {
+  color: #888;
+  font-style: italic;
+  cursor: default;
+}
+
+.folder-item:not(.is-directory) {
+  color: #aaa;
+  cursor: default;
+}
+
+.directory-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.git-repo-selection {
+  padding: 16px 0;
+}
+
+.git-repo-selection p {
+  margin: 0 0 16px 0;
+  color: #aaa;
+}
+
+/* Utility Classes */
+.hidden {
+  display: none !important;
 }

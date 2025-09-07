@@ -1,8 +1,17 @@
 use leptos::prelude::*;
 use leptos::html::Dialog;
+use leptos::task::spawn_local;
 use crate::app::AppView;
-use crate::models::{Task, TaskStatus};
-use crate::components::{TaskModal, TaskSidebar, EditTaskModal};
+use crate::models::{Task, TaskStatus, Project};
+use crate::components::{TaskModal, TaskSidebar, EditTaskModal, EditProjectModal};
+use wasm_bindgen::prelude::*;
+use serde_wasm_bindgen::to_value;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
+    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
+}
 
 #[component]
 pub fn Kanban(project_id: String) -> impl IntoView {
@@ -10,46 +19,69 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     // The expect() will panic if the context wasn't provided, which helps catch setup errors
     let navigate = use_context::<WriteSignal<AppView>>().expect("navigate context");
     
-    // Sample tasks for demonstration purposes
-    // In a real app, these would be loaded from localStorage or a database
-    let sample_tasks = vec![
-        Task {
-            id: "1".to_string(),
-            project_id: project_id.clone(),
-            title: "Setup project structure".to_string(),
-            description: "Create basic folder structure and files".to_string(),
-            status: TaskStatus::Done,
-            created_at: chrono::Utc::now(),
-        },
-        Task {
-            id: "2".to_string(),
-            project_id: project_id.clone(),
-            title: "Implement user authentication".to_string(),
-            description: "Add login and registration functionality".to_string(),
-            status: TaskStatus::InProgress,
-            created_at: chrono::Utc::now(),
-        },
-        Task {
-            id: "3".to_string(),
-            project_id: project_id.clone(),
-            title: "Design database schema".to_string(),
-            description: "Plan the database structure for the application".to_string(),
-            status: TaskStatus::ToDo,
-            created_at: chrono::Utc::now(),
-        },
-        Task {
-            id: "4".to_string(),
-            project_id: project_id.clone(),
-            title: "Write API documentation".to_string(),
-            description: "Document all API endpoints and usage".to_string(),
-            status: TaskStatus::InReview,
-            created_at: chrono::Utc::now(),
-        },
-    ];
+    // Project name signal
+    let (project_name, set_project_name) = signal(String::from("Loading..."));
+    
+    // Load project name from store using proper Tauri commands
+    {
+        let project_id_clone = project_id.clone();
+        let set_project_name = set_project_name.clone();
+        spawn_local(async move {
+            let empty_args = serde_json::json!({});
+            if let Ok(js_value) = to_value(&empty_args) {
+                match invoke("load_projects_data", js_value).await {
+                    js_result if !js_result.is_undefined() => {
+                        if let Ok(projects_wrapper) = serde_wasm_bindgen::from_value::<Vec<Vec<Project>>>(js_result) {
+                            if let Some(stored_projects) = projects_wrapper.first() {
+                                if let Some(project) = stored_projects.iter().find(|p| p.id == project_id_clone) {
+                                    set_project_name.set(project.name.clone());
+                                } else {
+                                    set_project_name.set("Unknown Project".to_string());
+                                }
+                            } else {
+                                set_project_name.set("Unknown Project".to_string());
+                            }
+                        }
+                    }
+                    _ => {
+                        set_project_name.set("Unknown Project".to_string());
+                    }
+                }
+            }
+        });
+    }
     
     // Create a reactive signal to hold the tasks list
     // Signal automatically triggers re-renders when the data changes
-    let (tasks, set_tasks) = signal(sample_tasks);
+    let (tasks, set_tasks) = signal(Vec::<Task>::new());
+    
+    // Load project-specific tasks from storage
+    {
+        let project_id_clone = project_id.clone();
+        let set_tasks = set_tasks.clone();
+        spawn_local(async move {
+            let load_args = serde_json::json!({ "projectId": project_id_clone });
+            if let Ok(js_value) = to_value(&load_args) {
+                match invoke("load_tasks_data", js_value).await {
+                    js_result if !js_result.is_undefined() => {
+                        if let Ok(tasks_json) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
+                            let tasks: Vec<Task> = tasks_json.into_iter()
+                                .filter_map(|v| serde_json::from_value(v).ok())
+                                .collect();
+                            set_tasks.set(tasks);
+                        }
+                    }
+                    _ => {
+                        // No tasks exist yet, start with empty list
+                        set_tasks.set(Vec::new());
+                    }
+                }
+            }
+        });
+    }
+    
+    // Simple save function for tasks (we'll implement auto-save later)
+    // For now, tasks will be saved when creating new tasks via TaskModal
     
     // Create a signal to track which task is currently selected for the sidebar
     // None means no sidebar is open, Some(task) means sidebar is showing that task
@@ -62,6 +94,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     // from Rust code (open/close modals programmatically)
     let dialog_ref: NodeRef<Dialog> = NodeRef::new();
     let edit_dialog_ref: NodeRef<Dialog> = NodeRef::new();
+    let edit_project_dialog_ref: NodeRef<Dialog> = NodeRef::new();
     
     // Track which task is being edited
     let (editing_task, set_editing_task) = signal::<Option<Task>>(None);
@@ -82,15 +115,53 @@ pub fn Kanban(project_id: String) -> impl IntoView {
         }
     };
     
+    // Handler to open the edit project modal
+    let open_edit_project_modal = move |_| {
+        if let Some(dialog) = edit_project_dialog_ref.get() {
+            let _ = dialog.show_modal();
+        }
+    };
+    
+    // Handler for when project is updated
+    let update_project = {
+        let set_project_name = set_project_name.clone();
+        Callback::new(move |updated_project: Project| {
+            set_project_name.set(updated_project.name);
+        })
+    };
+    
     // Callback function that gets called when TaskModal creates a new task
     // This function takes ownership of the Task and adds it to the kanban board
-    let create_task = Box::new(move |task: Task| {
-        // Update the tasks signal by pushing the new task to the vector
-        // This will automatically trigger a re-render of the kanban board
-        set_tasks.update(|tasks| {
-            tasks.push(task);
-        });
-    }) as Box<dyn Fn(Task) + 'static>;
+    let create_task = {
+        let project_id = project_id.clone();
+        let tasks = tasks.clone();
+        Box::new(move |task: Task| {
+            // Update the tasks signal by pushing the new task to the vector
+            // This will automatically trigger a re-render of the kanban board
+            set_tasks.update(|tasks| {
+                tasks.push(task);
+            });
+            
+            // Save tasks to storage using proper Tauri commands
+            let project_id = project_id.clone();
+            let tasks = tasks.clone();
+            spawn_local(async move {
+                let current_tasks = tasks.get_untracked();
+                // Convert tasks to JSON values for the backend
+                let json_tasks: Vec<serde_json::Value> = current_tasks.iter()
+                    .filter_map(|t| serde_json::to_value(t).ok())
+                    .collect();
+                
+                let save_args = serde_json::json!({ 
+                    "projectId": project_id,
+                    "tasks": json_tasks 
+                });
+                if let Ok(js_value) = to_value(&save_args) {
+                    let _ = invoke("save_tasks_data", js_value).await;
+                }
+            });
+        }) as Box<dyn Fn(Task) + 'static>
+    };
 
     // Task management functions are now inlined where they're used
     
@@ -112,9 +183,10 @@ pub fn Kanban(project_id: String) -> impl IntoView {
         >
             <div class="main-content">
                 <header class="kanban-header">
-                <h1>"Project: " {project_id.clone()}</h1>
+                <h1>"Project: " {project_name}</h1>
                 <div class="kanban-actions">
                     <button class="btn-secondary" on:click=back_to_projects>"←"</button>
+                    <button class="btn-secondary" on:click=open_edit_project_modal>"✎"</button>
                     <button class="btn-primary" on:click=open_modal>"+"</button>
                 </div>
             </header>
@@ -210,6 +282,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                             on:click={
                                                                                 let task_id_mobile_cancel = task.id.clone();
                                                                                 let set_tasks_mobile_cancel = set_tasks.clone();
+                                                                                // Note: Auto-save for task actions will be implemented later
                                                                                 move |e| {
                                                                                     e.stop_propagation();
                                                                                     set_tasks_mobile_cancel.update(|tasks| {
@@ -217,6 +290,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                             task.update_status(TaskStatus::Cancelled);
                                                                                         }
                                                                                     });
+                                                                                    // TODO: Add auto-save here
                                                                                 }
                                                                             }
                                                                         >"⚠"</button>
@@ -392,6 +466,12 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     view! {}.into_any()
                 }
             }}
+            
+            <EditProjectModal
+                project_id=project_id
+                on_update=update_project
+                dialog_ref=edit_project_dialog_ref
+            />
         </div>
     }
 }
