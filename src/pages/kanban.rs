@@ -526,8 +526,13 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                         let sidebar_status_callback = {
                             let set_tasks_for_status = set_tasks.clone();
+                            let tasks_for_status = tasks.clone();
                             let project_id_for_worktree = project_id_for_sidebar_use.clone();
                             Rc::new(move |task_id: String, status: TaskStatus| {
+                                // Clone data before mutable borrow
+                                let task_id_for_save = task_id.clone();
+                                let project_id_for_immediate_save = project_id_for_worktree.clone();
+                                
                                 set_tasks_for_status.update(|tasks| {
                                     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
                                         let old_status = task.status.clone();
@@ -716,6 +721,32 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                             }
                                         }
                                     }
+                                });
+                                
+                                // Save status change immediately to storage
+                                tasks_for_status.with(|tasks| {
+                                    let tasks_for_immediate_save = tasks.clone();
+                                    spawn_local(async move {
+                                        let tasks_json: Vec<serde_json::Value> = tasks_for_immediate_save.into_iter()
+                                            .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                            .collect();
+                                        
+                                        let save_args = serde_json::json!({
+                                            "projectId": project_id_for_immediate_save,
+                                            "tasks": tasks_json
+                                        });
+                                        
+                                        if let Ok(save_js_value) = to_value(&save_args) {
+                                            match invoke("save_tasks_data", save_js_value).await {
+                                                js_result if !js_result.is_undefined() => {
+                                                    web_sys::console::log_1(&format!("Status change for task {} saved successfully", task_id_for_save).into());
+                                                }
+                                                _ => {
+                                                    web_sys::console::error_1(&format!("Failed to save status change for task {}", task_id_for_save).into());
+                                                }
+                                            }
+                                        }
+                                    });
                                 });
                             }) as Rc<dyn Fn(String, TaskStatus) + 'static>
                         };
