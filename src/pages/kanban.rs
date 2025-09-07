@@ -196,8 +196,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     <button class="btn-secondary" on:click=open_edit_project_modal>"✎"</button>
                     <button class="btn-primary" on:click=open_modal>"+"</button>
                     <button 
-                        class="btn-danger" 
-                        style="margin-left: 8px;"
+                        class="btn-secondary"
                         on:click={
                             let project_id_for_delete = project_id.clone();
                             let set_view = use_context::<WriteSignal<crate::app::AppView>>()
@@ -571,7 +570,11 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                             let mut tasks_for_save = Vec::new();
                                                                                             set_tasks_clone.update(|tasks| {
                                                                                                 if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id_clone) {
-                                                                                                    task.set_worktree_path(Some(worktree_path));
+                                                                                                    web_sys::console::log_1(&format!("Debug: Setting worktree path for task {}: {}", task_id_clone, worktree_path).into());
+                                                                                                    task.set_worktree_path(Some(worktree_path.clone()));
+                                                                                                    web_sys::console::log_1(&format!("Debug: Task {} now has worktree_path: {:?}", task_id_clone, task.worktree_path).into());
+                                                                                                } else {
+                                                                                                    web_sys::console::error_1(&format!("Debug: Could not find task {} to set worktree path", task_id_clone).into());
                                                                                                 }
                                                                                                 tasks_for_save = tasks.clone();
                                                                                             });

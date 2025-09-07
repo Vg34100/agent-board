@@ -149,7 +149,11 @@ pub fn TaskSidebar(
                                         
                                         {/* Action buttons for worktree operations */}
                                         <div class="action-buttons">
-                                            {task.worktree_path.as_ref().map(|worktree_path| {
+                                            {
+                                                // Debug logging for worktree path
+                                                let worktree_debug = task.worktree_path.clone();
+                                                web_sys::console::log_1(&format!("TaskSidebar Debug - Task ID: {}, Worktree Path: {:?}", task.id, worktree_debug).into());
+                                                task.worktree_path.as_ref().map(|worktree_path| {
                                                 let worktree_path_for_files = worktree_path.clone();
                                                 let worktree_path_for_ide = worktree_path.clone();
                                                 view! {
@@ -166,7 +170,7 @@ pub fn TaskSidebar(
                                                                 }
                                                             }
                                                         >
-                                                            "📁"
+                                                            "🖿"
                                                         </button>
                                                         <button 
                                                             class="action-icon-btn"
