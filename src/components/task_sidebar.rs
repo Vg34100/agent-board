@@ -1,13 +1,16 @@
 use leptos::prelude::*;
 use crate::models::{Task, TaskStatus};
+use std::rc::Rc;
 
 #[component]
 pub fn TaskSidebar(
     #[prop(into)] task: Task,
     #[prop(into)] selected_task: WriteSignal<Option<Task>>,
     #[prop(into)] on_edit: Box<dyn Fn(Task) + 'static>, // Callback to trigger edit modal
-    #[prop(into)] on_update_status: Box<dyn Fn(String, TaskStatus) + 'static>,
+    #[prop(into)] on_update_status: Rc<dyn Fn(String, TaskStatus) + 'static>,
     #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
+    #[prop(into)] on_open_worktree: Option<Box<dyn Fn(String) + 'static>>,
+    #[prop(into)] on_open_ide: Option<Box<dyn Fn(String) + 'static>>,
 ) -> impl IntoView {
     // State for showing/hiding full description
     let (show_full_description, set_show_full_description) = signal(false);
@@ -55,6 +58,7 @@ pub fn TaskSidebar(
                         title="Move to Cancelled"
                         on:click={
                             let task_id_for_cancel = task_id.clone();
+                            let on_update_status = on_update_status.clone();
                             move |_| {
                                 on_update_status(task_id_for_cancel.clone(), TaskStatus::Cancelled);
                             }
@@ -122,7 +126,16 @@ pub fn TaskSidebar(
                                                 <option value="focused">"Focused"</option>
                                             </select>
                                         </div>
-                                        <button class="start-btn">"Start"</button>
+                                        <button 
+                                            class="start-btn"
+                                            on:click={
+                                                let task_id_for_start = task_id.clone();
+                                                let on_update_status = on_update_status.clone();
+                                                move |_| {
+                                                    on_update_status(task_id_for_start.clone(), TaskStatus::InProgress);
+                                                }
+                                            }
+                                        >"Start"</button>
                                     </div>
                                 </div>
                             }.into_any(),
@@ -131,16 +144,53 @@ pub fn TaskSidebar(
                                     <h3>"Attempt 1/1"</h3>
                                     <div class="status-info">
                                         <span class="profile-info">"Profile: default"</span>
-                                        <span class="branch-info">"Branch: feature/task-123"</span>
+                                        <span class="branch-info">{format!("Branch: task/{}", task.id)}</span>
                                         <span class="diff-info">"Diffs: +0 -0"</span>
-                                        <div class="action-menu">
-                                            <button class="menu-dots">"⋯"</button>
-                                            <div class="dropdown-menu">
-                                                <button>"Open in IDE"</button>
-                                                <button>"Start Dev Server"</button>
-                                                <button>"Rebase"</button>
-                                                <button>"Create PR"</button>
-                                                <button>"Merge"</button>
+                                        
+                                        {/* Action buttons for worktree operations */}
+                                        <div class="action-buttons">
+                                            {task.worktree_path.as_ref().map(|worktree_path| {
+                                                let worktree_path_for_files = worktree_path.clone();
+                                                let worktree_path_for_ide = worktree_path.clone();
+                                                view! {
+                                                    <div class="worktree-actions">
+                                                        <button 
+                                                            class="action-icon-btn"
+                                                            title="Open Files in Explorer"
+                                                            on:click={
+                                                                let path = worktree_path_for_files.clone();
+                                                                move |_| {
+                                                                    if let Some(ref callback) = on_open_worktree {
+                                                                        callback(path.clone());
+                                                                    }
+                                                                }
+                                                            }
+                                                        >
+                                                            "📁"
+                                                        </button>
+                                                        <button 
+                                                            class="action-icon-btn"
+                                                            title="Open in VS Code"
+                                                            on:click={
+                                                                let path = worktree_path_for_ide.clone();
+                                                                move |_| {
+                                                                    if let Some(ref callback) = on_open_ide {
+                                                                        callback(path.clone());
+                                                                    }
+                                                                }
+                                                            }
+                                                        >
+                                                            "⚙️"
+                                                        </button>
+                                                    </div>
+                                                }
+                                            })}
+                                            
+                                            {/* Additional action buttons - placeholder for future features */}
+                                            <div class="additional-actions">
+                                                <button class="action-icon-btn" title="Start Dev Server" disabled=true>"🚀"</button>
+                                                <button class="action-icon-btn" title="Create PR" disabled=true>"🔀"</button>
+                                                <button class="action-icon-btn" title="Merge" disabled=true>"✅"</button>
                                             </div>
                                         </div>
                                     </div>
