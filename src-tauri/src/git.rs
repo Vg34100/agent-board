@@ -1,7 +1,7 @@
-use git2::{Repository, WorktreeAddOptions, Worktree, Reference};
+use git2::{Repository, WorktreeAddOptions};
 use std::path::{Path, PathBuf};
 use std::fs;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug)]
 pub struct GitWorktree {
@@ -86,8 +86,11 @@ pub fn create_worktree(app: &AppHandle, project_path: &str, task_id: &str) -> Re
     println!("Creating worktree with git2-rs API...");
 
     // Create the worktree using git2-rs proper API
-    let _worktree = repo.worktree(&worktree_dir, Some(&opts))
-        .map_err(|e| format!("Failed to create worktree: {}", e))?;
+    let _worktree = repo.worktree(
+        &task_id,  // worktree name
+        &worktree_dir,  // worktree path
+        Some(&opts)  // options
+    ).map_err(|e| format!("Failed to create worktree: {}", e))?;
 
     println!("Successfully created worktree at: {:?}", worktree_dir);
 
@@ -107,7 +110,7 @@ pub fn create_worktree(app: &AppHandle, project_path: &str, task_id: &str) -> Re
 /// # Returns
 /// * `Ok(())` - If worktree was successfully removed
 /// * `Err(String)` - Error message if removal fails
-pub fn remove_worktree(app: &AppHandle, worktree_path: &str, project_path: &str) -> Result<(), String> {
+pub fn remove_worktree(_app: &AppHandle, worktree_path: &str, project_path: &str) -> Result<(), String> {
     println!("Removing worktree at: {}", worktree_path);
     
     let worktree_path = Path::new(worktree_path);
