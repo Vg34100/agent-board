@@ -16,6 +16,12 @@ extern "C" {
 
 #[component]
 pub fn Kanban(project_id: String) -> impl IntoView {
+    // Clone project_id early to avoid ownership issues
+    let project_id_for_tasks = project_id.clone();
+    let project_id_for_sidebar = project_id.clone();
+    let project_id_for_mobile = project_id.clone();
+    let project_id_for_dropdown = project_id.clone();
+    
     // Get the navigation signal from context - this allows us to change the current view
     // The expect() will panic if the context wasn't provided, which helps catch setup errors
     let navigate = use_context::<WriteSignal<AppView>>().expect("navigate context");
@@ -58,7 +64,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     
     // Load project-specific tasks from storage
     {
-        let project_id_clone = project_id.clone();
+        let project_id_clone = project_id_for_tasks.clone();
         let set_tasks = set_tasks.clone();
         spawn_local(async move {
             let load_args = serde_json::json!({ "projectId": project_id_clone });
@@ -189,6 +195,67 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     <button class="btn-secondary" on:click=back_to_projects>"←"</button>
                     <button class="btn-secondary" on:click=open_edit_project_modal>"✎"</button>
                     <button class="btn-primary" on:click=open_modal>"+"</button>
+                    <button 
+                        class="btn-danger" 
+                        style="margin-left: 8px;"
+                        on:click={
+                            let project_id_for_delete = project_id.clone();
+                            let set_view = use_context::<WriteSignal<crate::app::AppView>>()
+                                .expect("AppView context should be available");
+                            move |_| {
+                                if web_sys::window()
+                                    .map(|w| w.confirm_with_message(&format!("Are you sure you want to delete this project? This action cannot be undone.")).unwrap_or(false))
+                                    .unwrap_or(false)
+                                {
+                                    let project_id_to_delete = project_id_for_delete.clone();
+                                    spawn_local(async move {
+                                        // Load current projects
+                                        let empty_args = serde_json::json!({});
+                                        if let Ok(js_value) = to_value(&empty_args) {
+                                            match invoke("load_projects_data", js_value).await {
+                                                js_result if !js_result.is_undefined() => {
+                                                    if let Ok(projects_wrapper) = serde_wasm_bindgen::from_value::<Vec<Vec<crate::models::Project>>>(js_result) {
+                                                        if let Some(mut projects) = projects_wrapper.into_iter().next() {
+                                                            // Remove the project
+                                                            projects.retain(|p| p.id != project_id_to_delete);
+                                                            
+                                                            // Save updated projects
+                                                            let projects_json: Vec<serde_json::Value> = projects.into_iter()
+                                                                .map(|project| serde_json::to_value(project).unwrap_or_default())
+                                                                .collect();
+                                                            
+                                                            let save_args = serde_json::json!({
+                                                                "projects": projects_json
+                                                            });
+                                                            
+                                                            if let Ok(save_js_value) = to_value(&save_args) {
+                                                                match invoke("save_projects_data", save_js_value).await {
+                                                                    js_result if !js_result.is_undefined() => {
+                                                                        web_sys::console::log_1(&format!("Project {} deleted successfully", project_id_to_delete).into());
+                                                                        // Navigate back to projects view
+                                                                        set_view.set(crate::app::AppView::Projects);
+                                                                    }
+                                                                    _ => {
+                                                                        web_sys::console::error_1(&format!("Failed to save projects after deleting {}", project_id_to_delete).into());
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                _ => {
+                                                    web_sys::console::error_1(&"Failed to load projects for deletion".into());
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        title="Delete Project"
+                    >
+                        "🗑"
+                    </button>
                 </div>
             </header>
             
@@ -198,6 +265,10 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     // Each reactive closure needs its own copy to filter by status
                     let status_for_count = status.clone();
                     let status_for_tasks = status.clone();
+                    
+                    // Clone project_ids for use within this map closure
+                    let project_id_mobile = project_id_for_mobile.clone();
+                    let project_id_dropdown = project_id_for_dropdown.clone();
                     
                     view! {
                         <div class="kanban-column">
@@ -300,10 +371,36 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                             on:click={
                                                                                 let task_id_mobile_delete = task.id.clone();
                                                                                 let set_tasks_mobile_delete = set_tasks.clone();
+                                                                                let project_id_mobile_delete = project_id_mobile.clone();
                                                                                 move |e| {
                                                                                     e.stop_propagation();
                                                                                     set_tasks_mobile_delete.update(|tasks| {
                                                                                         tasks.retain(|t| t.id != task_id_mobile_delete);
+                                                                                        
+                                                                                        // Save updated tasks to storage after deletion
+                                                                                        let tasks_json: Vec<serde_json::Value> = tasks.iter()
+                                                                                            .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                                                                            .collect();
+                                                                                        
+                                                                                        let project_id_for_save = project_id_mobile_delete.clone();
+                                                                                        let task_id_for_log = task_id_mobile_delete.clone();
+                                                                                        spawn_local(async move {
+                                                                                            let save_args = serde_json::json!({
+                                                                                                "projectId": project_id_for_save,
+                                                                                                "tasks": tasks_json
+                                                                                            });
+                                                                                            
+                                                                                            if let Ok(save_js_value) = to_value(&save_args) {
+                                                                                                match invoke("save_tasks_data", save_js_value).await {
+                                                                                                    js_result if !js_result.is_undefined() => {
+                                                                                                        web_sys::console::log_1(&format!("Mobile delete: Task {} deleted and saved successfully", task_id_for_log).into());
+                                                                                                    }
+                                                                                                    _ => {
+                                                                                                        web_sys::console::error_1(&format!("Mobile delete: Failed to save tasks after deleting task {}", task_id_for_log).into());
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        });
                                                                                     });
                                                                                 }
                                                                             }
@@ -359,11 +456,37 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                 let task_id_dropdown_delete = task.id.clone();
                                                                                 let set_tasks_dropdown_delete = set_tasks.clone();
                                                                                 let set_open_dropdown_delete = set_open_dropdown.clone();
+                                                                                let project_id_dropdown_delete = project_id_dropdown.clone();
                                                                                 move |e| {
                                                                                     e.stop_propagation();
                                                                                     set_open_dropdown_delete.set(None); // Close dropdown
                                                                                     set_tasks_dropdown_delete.update(|tasks| {
                                                                                         tasks.retain(|t| t.id != task_id_dropdown_delete);
+                                                                                        
+                                                                                        // Save updated tasks to storage after deletion
+                                                                                        let tasks_json: Vec<serde_json::Value> = tasks.iter()
+                                                                                            .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                                                                            .collect();
+                                                                                        
+                                                                                        let project_id_for_save = project_id_dropdown_delete.clone();
+                                                                                        let task_id_for_log = task_id_dropdown_delete.clone();
+                                                                                        spawn_local(async move {
+                                                                                            let save_args = serde_json::json!({
+                                                                                                "projectId": project_id_for_save,
+                                                                                                "tasks": tasks_json
+                                                                                            });
+                                                                                            
+                                                                                            if let Ok(save_js_value) = to_value(&save_args) {
+                                                                                                match invoke("save_tasks_data", save_js_value).await {
+                                                                                                    js_result if !js_result.is_undefined() => {
+                                                                                                        web_sys::console::log_1(&format!("Dropdown delete: Task {} deleted and saved successfully", task_id_for_log).into());
+                                                                                                    }
+                                                                                                    _ => {
+                                                                                                        web_sys::console::error_1(&format!("Dropdown delete: Failed to save tasks after deleting task {}", task_id_for_log).into());
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        });
                                                                                     });
                                                                                 }
                                                                             }
@@ -387,7 +510,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             
             {/* Conditional Sidebar - only shows when a task is selected */}
             {
-                let project_id_for_sidebar = project_id.clone();
+                let project_id_for_sidebar_use = project_id_for_sidebar.clone();
                 move || {
                 selected_task.with(|task_opt| {
                     if let Some(task) = task_opt {
@@ -404,7 +527,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                         let sidebar_status_callback = {
                             let set_tasks_for_status = set_tasks.clone();
-                            let project_id_for_worktree = project_id_for_sidebar.clone();
+                            let project_id_for_worktree = project_id_for_sidebar_use.clone();
                             Rc::new(move |task_id: String, status: TaskStatus| {
                                 set_tasks_for_status.update(|tasks| {
                                     if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
@@ -596,7 +719,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                         let sidebar_delete_callback = {
                             let set_tasks_for_delete = set_tasks.clone();
-                            let project_id_for_delete = project_id_for_sidebar.clone();
+                            let project_id_for_delete = project_id_for_sidebar_use.clone();
                             Box::new(move |task_id: String| {
                                 set_tasks_for_delete.update(|tasks| {
                                     tasks.retain(|t| t.id != task_id);
