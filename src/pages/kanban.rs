@@ -564,8 +564,8 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                         if let Ok(create_js_value) = to_value(&create_args) {
                                                                             match invoke("create_task_worktree", create_js_value).await {
                                                                                 js_result if !js_result.is_undefined() => {
-                                                                                    match serde_wasm_bindgen::from_value::<Result<String, String>>(js_result) {
-                                                                                        Ok(Ok(worktree_path)) => {
+                                                                                    match serde_wasm_bindgen::from_value::<String>(js_result) {
+                                                                                        Ok(worktree_path) => {
                                                                                             web_sys::console::log_1(&format!("Worktree created successfully at: {}", worktree_path).into());
                                                                                             
                                                                                             // Update task with worktree path and save
@@ -606,9 +606,6 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                                     }
                                                                                                 }
                                                                                             });
-                                                                                        }
-                                                                                        Ok(Err(error_msg)) => {
-                                                                                            web_sys::console::error_1(&format!("Worktree creation failed: {}", error_msg).into());
                                                                                         }
                                                                                         Err(parse_error) => {
                                                                                             web_sys::console::error_1(&format!("Failed to parse worktree creation result: {:?}", parse_error).into());
