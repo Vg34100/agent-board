@@ -214,111 +214,87 @@ pub fn TaskSidebar(
                     </div>
                 </div>
                 
-                {/* Agent Chat Window - Only show for non-TODO statuses */}
+                {/* Tabbed Interface - Only show for non-TODO statuses */}
                 {match task_status {
                     TaskStatus::ToDo => view! {}.into_any(),
-                    _ => view! {
-                        <div class="agent-window">
-                            <h3>"Coding Agents"</h3>
-                    <div class="agent-sessions">
-                        {/* Sample agent sessions - these would be dynamic in real implementation */}
-                        <div class="agent-session">
-                            <div class="session-header">
-                                <span class="session-title">"<> Coding Agent"</span>
-                                <span class="session-time">"10:45:29 PM"</span>
-                                <button class="restore-btn">"Restore"</button>
-                                <span class="session-status completed">"Completed"</span>
-                                <button class="expand-btn">"▼"</button>
-                            </div>
-                            <div class="session-content hidden">
-                                <div class="message">
-                                    <div class="message-header">
-                                        <span class="sender">"Agent"</span>
-                                        <span class="time">"10:45:30 PM"</span>
-                                    </div>
-                                    <div class="message-content">
-                                        "I'll help you implement this feature. Let me start by examining the current code structure..."
-                                    </div>
-                                </div>
-                                <div class="message">
-                                    <div class="message-header">
-                                        <span class="sender">"User"</span>
-                                        <span class="time">"10:46:15 PM"</span>
-                                    </div>
-                                    <div class="message-content">
-                                        "Please make sure to follow the existing patterns in the codebase."
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    _ => {
+                        // Tab state management
+                        let (active_tab, set_active_tab) = signal("agents".to_string());
                         
-                        <div class="agent-session">
-                            <div class="session-header">
-                                <span class="session-title">"<> Coding Agent"</span>
-                                <span class="session-time">"11:22:15 PM"</span>
-                                <button class="restore-btn">"Restore"</button>
-                                <span class="session-status completed">"Completed"</span>
-                                <button class="expand-btn">"▼"</button>
-                            </div>
-                            <div class="session-content hidden">
-                                <div class="message">
-                                    <div class="message-header">
-                                        <span class="sender">"Agent"</span>
-                                        <span class="time">"11:22:16 PM"</span>
-                                    </div>
-                                    <div class="message-content">
-                                        "Task completed successfully. All tests are passing."
-                                    </div>
+                        view! {
+                            <div class="tabbed-interface">
+                                {/* Tab Headers */}
+                                <div class="tab-headers">
+                                    <button 
+                                        class=move || format!("tab-header {}", if active_tab.get() == "agents" { "active" } else { "" })
+                                        on:click=move |_| set_active_tab.set("agents".to_string())
+                                    >"Agents"</button>
+                                    <button 
+                                        class=move || format!("tab-header {}", if active_tab.get() == "diff" { "active" } else { "" })
+                                        on:click=move |_| set_active_tab.set("diff".to_string())
+                                    >"Diff"</button>
+                                    <button 
+                                        class=move || format!("tab-header {}", if active_tab.get() == "processes" { "active" } else { "" })
+                                        on:click=move |_| set_active_tab.set("processes".to_string())
+                                    >"Processes"</button>
+                                </div>
+                                
+                                {/* Tab Content */}
+                                <div class="tab-content">
+                                    {move || match active_tab.get().as_str() {
+                                        "agents" => view! {
+                                            <div class="agents-tab">
+                                                <div class="agent-sessions">
+                                                    {/* Placeholder for dynamic agent sessions */}
+                                                    <div class="no-agents">
+                                                        <p>"No active agent sessions"</p>
+                                                        <p class="hint">"Agent will be spawned automatically when you start the task"</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Chat Input */}
+                                                <div class="chat-input-section">
+                                                    <div class="input-container">
+                                                        <button class="profile-btn" disabled=true>"Profile"</button>
+                                                        <input 
+                                                            type="text" 
+                                                            placeholder="No active agent session..."
+                                                            class="message-input"
+                                                            disabled=true
+                                                        />
+                                                        <button class="send-btn" disabled=true>"Send"</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }.into_any(),
+                                        "diff" => view! {
+                                            <div class="diff-tab">
+                                                <div class="diff-content">
+                                                    <div class="placeholder-content">
+                                                        <h4>"File Diffs"</h4>
+                                                        <p>"TODO: Show file changes from worktree"</p>
+                                                        <p class="hint">"This will display modified files with +/- line changes"</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }.into_any(),
+                                        "processes" => view! {
+                                            <div class="processes-tab">
+                                                <div class="process-list">
+                                                    <h4>"Claude Code Processes"</h4>
+                                                    <div class="no-processes">
+                                                        <p>"No processes spawned yet"</p>
+                                                        <p class="hint">"Process details with expandable JSON will appear here"</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }.into_any(),
+                                        _ => view! {}.into_any()
+                                    }}
                                 </div>
                             </div>
-                        </div>
-                        
-                        {/* Most recent session - automatically expanded */}
-                        <div class="agent-session active">
-                            <div class="session-header">
-                                <span class="session-title">"<> Coding Agent"</span>
-                                <span class="session-time">"12:05:42 PM"</span>
-                                <button class="restore-btn">"Restore"</button>
-                                <span class="session-status in-progress">"In Progress"</span>
-                                <button class="expand-btn">"▲"</button>
-                            </div>
-                            <div class="session-content">
-                                <div class="message">
-                                    <div class="message-header">
-                                        <span class="sender">"Agent"</span>
-                                        <span class="time">"12:05:43 PM"</span>
-                                    </div>
-                                    <div class="message-content">
-                                        "Starting work on the sidebar component implementation..."
-                                    </div>
-                                </div>
-                                <div class="message">
-                                    <div class="message-header">
-                                        <span class="sender">"Agent"</span>
-                                        <span class="time">"12:06:12 PM"</span>
-                                    </div>
-                                    <div class="message-content">
-                                        "I've created the basic component structure. Now implementing the status-dependent sections."
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                {/* Chat Input */}
-                <div class="chat-input-section">
-                    <div class="input-container">
-                        <button class="profile-btn">"Profile"</button>
-                        <input 
-                            type="text" 
-                            placeholder="Send a message..."
-                            class="message-input"
-                        />
-                        <button class="send-btn">"Send"</button>
-                    </div>
-                </div>
-                    }.into_any()
+                        }.into_any()
+                    }
                 }}
             </div>
         </div>
