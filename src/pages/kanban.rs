@@ -543,6 +543,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                             let task_id_clone = task_id.clone();
                                             let project_id_clone = project_id_for_worktree.clone();
                                             let set_tasks_clone = set_tasks_for_status.clone();
+                                            let tasks_read_clone = tasks_for_status.clone();
 
                                             spawn_local(async move {
                                                 // First, get the project path from storage
@@ -567,6 +568,47 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                     match serde_wasm_bindgen::from_value::<String>(js_result) {
                                                                                         Ok(worktree_path) => {
                                                                                             web_sys::console::log_1(&format!("Worktree created successfully at: {}", worktree_path).into());
+
+                                                                                            // Start agent process for this task
+                                                                                            let agent_task_id = task_id_clone.clone();
+                                                                                            let agent_worktree_path = worktree_path.clone();
+                                                                                            
+                                                                                            // Get task details for agent initialization
+                                                                                            let task_for_agent = {
+                                                                                                let tasks = tasks_read_clone.get_untracked();
+                                                                                                tasks.iter().find(|t| t.id == agent_task_id).cloned()
+                                                                                            };
+                                                                                            
+                                                                                            if let Some(task) = task_for_agent {
+                                                                                                spawn_local(async move {
+                                                                                                    let agent_args = serde_json::json!({
+                                                                                                        "taskId": agent_task_id,
+                                                                                                        "taskTitle": task.title,
+                                                                                                        "taskDescription": task.description,
+                                                                                                        "worktreePath": agent_worktree_path
+                                                                                                    });
+                                                                                                    
+                                                                                                    web_sys::console::log_1(&format!("Starting agent process for task: {}", agent_task_id).into());
+                                                                                                    
+                                                                                                    if let Ok(agent_js_value) = to_value(&agent_args) {
+                                                                                                        match invoke("start_agent_process", agent_js_value).await {
+                                                                                                            js_result if !js_result.is_undefined() => {
+                                                                                                                match serde_wasm_bindgen::from_value::<String>(js_result) {
+                                                                                                                    Ok(process_id) => {
+                                                                                                                        web_sys::console::log_1(&format!("Agent process started successfully with ID: {}", process_id).into());
+                                                                                                                    }
+                                                                                                                    Err(e) => {
+                                                                                                                        web_sys::console::error_1(&format!("Failed to parse agent process ID: {:?}", e).into());
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+                                                                                                            _ => {
+                                                                                                                web_sys::console::error_1(&"Failed to start agent process".into());
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                });
+                                                                                            }
 
                                                                                             // Update task with worktree path and save
                                                                                             let _task_id_for_save = task_id_clone.clone();
