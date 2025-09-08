@@ -1,6 +1,38 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use crate::models::{Task, TaskStatus};
 use std::rc::Rc;
+use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
+use serde_wasm_bindgen::to_value;
+use web_sys;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentMessage {
+    pub id: String,
+    pub sender: String,
+    pub content: String,
+    pub timestamp: String,
+    pub message_type: String,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentProcess {
+    pub id: String,
+    pub task_id: String,
+    pub status: String,
+    pub start_time: String,
+    pub end_time: Option<String>,
+    pub messages: Vec<AgentMessage>,
+    pub raw_output: Vec<String>,
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
+    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
+}
 
 #[component]
 pub fn TaskSidebar(
@@ -11,15 +43,24 @@ pub fn TaskSidebar(
     #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
     #[prop(into)] on_open_worktree: Option<Box<dyn Fn(String) + 'static>>,
     #[prop(into)] on_open_ide: Option<Box<dyn Fn(String) + 'static>>,
+    #[prop(into, optional)] active_process_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // State for showing/hiding full description
     let (show_full_description, set_show_full_description) = signal(false);
+    
+    // Agent process state
+    let (agent_messages, set_agent_messages) = signal(Vec::<AgentMessage>::new());
+    let (all_processes, set_all_processes) = signal(Vec::<serde_json::Value>::new());
+    let (current_process_id, set_current_process_id) = signal(Option::<String>::None);
+    let (message_input, set_message_input) = signal(String::new());
+    let (is_sending_message, set_is_sending_message) = signal(false);
     
     // Clone task data for use in closures
     let task_title = task.title.clone();
     let task_description = task.description.clone();
     let task_status = task.status.clone();
     let task_id = task.id.clone();
+    let task_worktree_path = task.worktree_path.clone();
     
     // Determine if description is long (more than 5 lines approximately)
     let description_is_long = task_description.len() > 200; // Rough estimate
@@ -36,6 +77,100 @@ pub fn TaskSidebar(
     let close_sidebar = move |_| {
         selected_task.set(None);
     };
+
+    // Load agent messages for current process
+    let load_agent_messages = {
+        let set_agent_messages = set_agent_messages.clone();
+        move |process_id: String| {
+            spawn_local(async move {
+                let args = serde_json::json!({ "process_id": process_id });
+                if let Ok(js_value) = to_value(&args) {
+                    match invoke("get_agent_messages", js_value).await {
+                        js_result if !js_result.is_undefined() => {
+                            if let Ok(messages) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(js_result) {
+                                set_agent_messages.set(messages);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+    };
+
+    // Load all processes
+    let load_all_processes = {
+        let set_all_processes = set_all_processes.clone();
+        move || {
+            spawn_local(async move {
+                match invoke("get_process_list", serde_wasm_bindgen::to_value(&serde_json::json!({})).unwrap()).await {
+                    js_result if !js_result.is_undefined() => {
+                        if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
+                            set_all_processes.set(processes);
+                        }
+                    }
+                    _ => {}
+                }
+            });
+        }
+    };
+
+    // Send message callback
+    let handle_send_message = {
+        let set_is_sending_message = set_is_sending_message.clone();
+        let set_message_input = set_message_input.clone();
+        let set_current_process_id = set_current_process_id.clone();
+        let load_agent_messages = load_agent_messages.clone();
+        let task_worktree_path = task_worktree_path.clone();
+        let current_process_id = current_process_id.clone();
+        let message_input = message_input.clone();
+        
+        move |_: web_sys::MouseEvent| {
+            let message = message_input.get_untracked();
+            if let Some(process_id) = current_process_id.get_untracked() {
+                if message.trim().is_empty() || task_worktree_path.is_none() {
+                    return;
+                }
+                
+                let worktree_path = task_worktree_path.clone().unwrap();
+                set_is_sending_message.set(true);
+                set_message_input.set(String::new());
+                
+                let set_current_process_id = set_current_process_id.clone();
+                let load_agent_messages = load_agent_messages.clone();
+                let set_is_sending_message = set_is_sending_message.clone();
+                
+                spawn_local(async move {
+                    let args = serde_json::json!({
+                        "process_id": process_id,
+                        "message": message,
+                        "worktree_path": worktree_path
+                    });
+                    
+                    if let Ok(js_value) = to_value(&args) {
+                        match invoke("send_agent_message", js_value).await {
+                            js_result if !js_result.is_undefined() => {
+                                if let Ok(new_process_id) = serde_wasm_bindgen::from_value::<String>(js_result) {
+                                    set_current_process_id.set(Some(new_process_id.clone()));
+                                    load_agent_messages(new_process_id);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    set_is_sending_message.set(false);
+                });
+            }
+        }
+    };
+
+    // Load processes on component mount
+    {
+        let load_all_processes = load_all_processes.clone();
+        spawn_local(async move {
+            load_all_processes();
+        });
+    }
 
     view! {
         <div class="task-sidebar">
@@ -245,9 +380,8 @@ pub fn TaskSidebar(
                                         "agents" => view! {
                                             <div class="agents-tab">
                                                 <div class="agent-sessions">
-                                                    {/* Placeholder for dynamic agent sessions */}
                                                     <div class="no-agents">
-                                                        <p>"No active agent sessions"</p>
+                                                        <p>"No agent messages yet"</p>
                                                         <p class="hint">"Agent will be spawned automatically when you start the task"</p>
                                                     </div>
                                                 </div>
