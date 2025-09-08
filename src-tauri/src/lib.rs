@@ -4,6 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 mod git;
+mod agent;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirectoryItem {
@@ -312,12 +313,61 @@ async fn list_app_worktrees(app: tauri::AppHandle) -> Result<Vec<String>, String
     }
 }
 
+// Agent Commands
+
+#[tauri::command]
+async fn start_agent_process(
+    task_id: String,
+    task_title: String,
+    task_description: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    println!("Tauri command: start_agent_process called for task '{}' in worktree '{}'", task_id, worktree_path);
+    let initial_message = format!("{}: {}", task_title, task_description);
+    agent::spawn_claude_process(task_id, initial_message, worktree_path, None)
+}
+
+#[tauri::command]
+async fn send_agent_message(
+    process_id: String,
+    message: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    println!("Tauri command: send_agent_message called for process '{}' with message: {}", process_id, message);
+    agent::send_message_to_process(&process_id, message, worktree_path)
+}
+
+#[tauri::command]
+async fn get_process_list() -> Result<Vec<serde_json::Value>, String> {
+    println!("Tauri command: get_process_list called");
+    Ok(agent::get_process_list())
+}
+
+#[tauri::command]
+async fn get_process_details(process_id: String) -> Result<Option<agent::AgentProcess>, String> {
+    println!("Tauri command: get_process_details called for process '{}'", process_id);
+    Ok(agent::get_process_by_id(&process_id))
+}
+
+#[tauri::command]
+async fn get_agent_messages(process_id: String) -> Result<Vec<agent::AgentMessage>, String> {
+    println!("Tauri command: get_agent_messages called for process '{}'", process_id);
+    Ok(agent::get_process_messages(&process_id))
+}
+
+#[tauri::command]
+async fn kill_agent_process(process_id: String) -> Result<String, String> {
+    println!("Tauri command: kill_agent_process called for process '{}'", process_id);
+    agent::kill_process(&process_id)?;
+    Ok("Process killed successfully".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, get_process_list, get_process_details, get_agent_messages, kill_agent_process])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
