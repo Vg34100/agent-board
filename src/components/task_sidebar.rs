@@ -5,6 +5,7 @@ use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
+use js_sys;
 use web_sys;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +44,7 @@ pub fn TaskSidebar(
     #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
     #[prop(into)] on_open_worktree: Option<Box<dyn Fn(String) + 'static>>,
     #[prop(into)] on_open_ide: Option<Box<dyn Fn(String) + 'static>>,
-    #[prop(into, optional)] active_process_id: Option<RwSignal<Option<String>>>,
+    #[prop(into, optional)] _active_process_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // State for showing/hiding full description
     let (show_full_description, set_show_full_description) = signal(false);
@@ -52,15 +53,15 @@ pub fn TaskSidebar(
     let (agent_messages, set_agent_messages) = signal(Vec::<AgentMessage>::new());
     let (all_processes, set_all_processes) = signal(Vec::<serde_json::Value>::new());
     let (current_process_id, set_current_process_id) = signal(Option::<String>::None);
-    let (message_input, set_message_input) = signal(String::new());
-    let (is_sending_message, set_is_sending_message) = signal(false);
+    let (_message_input, _set_message_input) = signal(String::new());
+    let (_is_sending_message, _set_is_sending_message) = signal(false);
     
     // Clone task data for use in closures
     let task_title = task.title.clone();
     let task_description = task.description.clone();
     let task_status = task.status.clone();
     let task_id = task.id.clone();
-    let task_worktree_path = task.worktree_path.clone();
+    let _task_worktree_path = task.worktree_path.clone();
     
     // Determine if description is long (more than 5 lines approximately)
     let description_is_long = task_description.len() > 200; // Rough estimate
@@ -78,17 +79,22 @@ pub fn TaskSidebar(
         selected_task.set(None);
     };
 
-    // Load agent messages for current process
+    // Load agent messages for current process with force refresh
     let load_agent_messages = {
         let set_agent_messages = set_agent_messages.clone();
         move |process_id: String| {
+            let set_agent_messages = set_agent_messages.clone();
             spawn_local(async move {
-                let args = serde_json::json!({ "process_id": process_id });
+                let args = serde_json::json!({ "processId": process_id });
                 if let Ok(js_value) = to_value(&args) {
                     match invoke("get_agent_messages", js_value).await {
                         js_result if !js_result.is_undefined() => {
                             if let Ok(messages) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(js_result) {
-                                set_agent_messages.set(messages);
+                                // Use update to ensure reactivity even if content is similar
+                                set_agent_messages.update(|current| {
+                                    current.clear();
+                                    current.extend(messages);
+                                });
                             }
                         }
                         _ => {}
@@ -115,60 +121,134 @@ pub fn TaskSidebar(
         }
     };
 
-    // Send message callback
-    let handle_send_message = {
-        let set_is_sending_message = set_is_sending_message.clone();
-        let set_message_input = set_message_input.clone();
-        let set_current_process_id = set_current_process_id.clone();
-        let load_agent_messages = load_agent_messages.clone();
-        let task_worktree_path = task_worktree_path.clone();
-        let current_process_id = current_process_id.clone();
-        let message_input = message_input.clone();
-        
-        move |_: web_sys::MouseEvent| {
-            let message = message_input.get_untracked();
-            if let Some(process_id) = current_process_id.get_untracked() {
-                if message.trim().is_empty() || task_worktree_path.is_none() {
-                    return;
-                }
-                
-                let worktree_path = task_worktree_path.clone().unwrap();
-                set_is_sending_message.set(true);
-                set_message_input.set(String::new());
-                
-                let set_current_process_id = set_current_process_id.clone();
-                let load_agent_messages = load_agent_messages.clone();
-                let set_is_sending_message = set_is_sending_message.clone();
-                
-                spawn_local(async move {
-                    let args = serde_json::json!({
-                        "process_id": process_id,
-                        "message": message,
-                        "worktree_path": worktree_path
-                    });
-                    
-                    if let Ok(js_value) = to_value(&args) {
-                        match invoke("send_agent_message", js_value).await {
-                            js_result if !js_result.is_undefined() => {
-                                if let Ok(new_process_id) = serde_wasm_bindgen::from_value::<String>(js_result) {
-                                    set_current_process_id.set(Some(new_process_id.clone()));
-                                    load_agent_messages(new_process_id);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    set_is_sending_message.set(false);
-                });
-            }
-        }
-    };
 
     // Load processes on component mount
     {
         let load_all_processes = load_all_processes.clone();
         spawn_local(async move {
+            // Initial load
             load_all_processes();
+        });
+    }
+    
+    // Auto-detect active process on initial load
+    {
+        let task_id = task.id.clone();
+        let set_current_process_id = set_current_process_id.clone();
+        let load_agent_messages = load_agent_messages.clone();
+        
+        // Initial process detection
+        spawn_local(async move {
+            // Check for active processes for this task
+            let args = serde_json::json!({});
+            if let Ok(js_value) = to_value(&args) {
+                match invoke("get_process_list", js_value).await {
+                    js_result if !js_result.is_undefined() => {
+                        if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
+                            // Find the latest process for this task
+                            if let Some(proc) = processes.iter()
+                                .filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task_id))
+                                .last() {
+                                if let Some(process_id) = proc.get("id").and_then(|v| v.as_str()) {
+                                    set_current_process_id.set(Some(process_id.to_string()));
+                                    load_agent_messages(process_id.to_string());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+        
+        // Timer-based polling removed - now using event-driven updates only
+    }
+    
+    // Set up Tauri event listener for real-time updates
+    {
+        let task_id_for_events = task.id.clone();
+        let load_agent_messages_for_events = load_agent_messages.clone();
+        let set_current_process_id_for_events = set_current_process_id.clone();
+        
+        spawn_local(async move {
+            // Listen for agent message update events AND process status updates
+            let listen_js = js_sys::Function::new_with_args(
+                "eventName,handler",
+                "return window.__TAURI__.event.listen(eventName, handler)"
+            );
+            
+            // Handler for message updates
+            let task_id_msg = task_id_for_events.clone();
+            let load_msg = load_agent_messages_for_events.clone();
+            let set_id_msg = set_current_process_id_for_events.clone();
+            let message_handler = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: JsValue| {
+                web_sys::console::log_1(&"📥 Received agent_message_update event".into());
+                if let Ok(event_data) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                    web_sys::console::log_1(&format!("📥 Event data: {:?}", event_data).into());
+                    if let Some(payload) = event_data.get("payload") {
+                        if let Some(event_task_id) = payload.get("task_id").and_then(|v| v.as_str()) {
+                            web_sys::console::log_1(&format!("📥 Task ID: {} (looking for: {})", event_task_id, task_id_msg).into());
+                            // Only handle events for this task
+                            if event_task_id == task_id_msg {
+                                if let Some(process_id) = payload.get("process_id").and_then(|v| v.as_str()) {
+                                    web_sys::console::log_1(&format!("✅ Processing message event for process {}", process_id).into());
+                                    // Update current process ID if needed
+                                    set_id_msg.set(Some(process_id.to_string()));
+                                    // Refresh messages for this process
+                                    load_msg(process_id.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+            
+            // Handler for process status updates  
+            let task_id_status = task_id_for_events.clone();
+            let load_status = load_agent_messages_for_events.clone();
+            let set_id_status = set_current_process_id_for_events.clone();
+            let load_all_processes_for_status = load_all_processes.clone();
+            let status_handler = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: JsValue| {
+                web_sys::console::log_1(&"📊 Received agent_process_status event".into());
+                if let Ok(event_data) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
+                    web_sys::console::log_1(&format!("📊 Status event data: {:?}", event_data).into());
+                    if let Some(payload) = event_data.get("payload") {
+                        if let Some(event_task_id) = payload.get("task_id").and_then(|v| v.as_str()) {
+                            web_sys::console::log_1(&format!("📊 Task ID: {} (looking for: {})", event_task_id, task_id_status).into());
+                            // Only handle events for this task
+                            if event_task_id == task_id_status {
+                                if let Some(process_id) = payload.get("process_id").and_then(|v| v.as_str()) {
+                                    let status = payload.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                    web_sys::console::log_1(&format!("✅ Processing status event: {} -> {}", process_id, status).into());
+                                    // Update current process ID when process starts
+                                    set_id_status.set(Some(process_id.to_string()));
+                                    // Load initial messages for new process
+                                    load_status(process_id.to_string());
+                                    // CRITICAL: Also refresh process list to trigger UI re-render
+                                    load_all_processes_for_status();
+                                }
+                            }
+                        }
+                    }
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+            
+            // Set up both listeners
+            let _ = listen_js.call2(
+                &JsValue::NULL,
+                &JsValue::from_str("agent_message_update"),
+                message_handler.as_ref().unchecked_ref()
+            );
+            
+            let _ = listen_js.call2(
+                &JsValue::NULL,
+                &JsValue::from_str("agent_process_status"),
+                status_handler.as_ref().unchecked_ref()
+            );
+            
+            // Keep the closures alive
+            message_handler.forget();
+            status_handler.forget();
         });
     }
 
@@ -362,7 +442,18 @@ pub fn TaskSidebar(
                                 <div class="tab-headers">
                                     <button 
                                         class=move || format!("tab-header {}", if active_tab.get() == "agents" { "active" } else { "" })
-                                        on:click=move |_| set_active_tab.set("agents".to_string())
+                                        on:click={
+                                            let set_active_tab = set_active_tab.clone();
+                                            let load_agent_messages = load_agent_messages.clone();
+                                            let current_process_id = current_process_id.clone();
+                                            move |_| {
+                                                set_active_tab.set("agents".to_string());
+                                                // Refresh messages when agents tab is clicked
+                                                if let Some(process_id) = current_process_id.get_untracked() {
+                                                    load_agent_messages(process_id);
+                                                }
+                                            }
+                                        }
                                     >"Agents"</button>
                                     <button 
                                         class=move || format!("tab-header {}", if active_tab.get() == "diff" { "active" } else { "" })
@@ -370,36 +461,197 @@ pub fn TaskSidebar(
                                     >"Diff"</button>
                                     <button 
                                         class=move || format!("tab-header {}", if active_tab.get() == "processes" { "active" } else { "" })
-                                        on:click=move |_| set_active_tab.set("processes".to_string())
+                                        on:click={
+                                            let set_active_tab = set_active_tab.clone();
+                                            let load_all_processes = load_all_processes.clone();
+                                            move |_| {
+                                                set_active_tab.set("processes".to_string());
+                                                // Refresh process list when processes tab is clicked
+                                                load_all_processes();
+                                            }
+                                        }
                                     >"Processes"</button>
                                 </div>
                                 
                                 {/* Tab Content */}
                                 <div class="tab-content">
                                     {move || match active_tab.get().as_str() {
-                                        "agents" => view! {
-                                            <div class="agents-tab">
-                                                <div class="agent-sessions">
-                                                    <div class="no-agents">
-                                                        <p>"No agent messages yet"</p>
-                                                        <p class="hint">"Agent will be spawned automatically when you start the task"</p>
+                                        "agents" => {
+                                            let messages = agent_messages.get();
+                                            let processes = all_processes.get();
+                                            let has_messages = !messages.is_empty();
+                                            
+                                            // Check if there are any processes for this task
+                                            let current_task_processes: Vec<_> = processes.iter()
+                                                .filter(|proc| proc.get("task_id").and_then(|v| v.as_str()) == Some(&task.id))
+                                                .collect();
+                                            
+                                            let has_processes = !current_task_processes.is_empty();
+                                            let latest_process_status = current_task_processes.last()
+                                                .and_then(|proc| proc.get("status").and_then(|v| v.as_str()));
+                                            
+                                            view! {
+                                                <div class="agents-tab">
+                                                    <div class="agent-sessions">
+                                                        {if !has_processes {
+                                                            // No processes started yet
+                                                            view! {
+                                                                <div class="no-agents">
+                                                                    <p>"No agent processes yet"</p>
+                                                                    <p class="hint">"Agent will be spawned automatically when you start the task"</p>
+                                                                </div>
+                                                            }.into_any()
+                                                        } else if let Some(status) = latest_process_status {
+                                                            match status {
+                                                                "starting" => {
+                                                                    view! {
+                                                                        <div class="agent-loading">
+                                                                            <div class="loading-indicator">
+                                                                                <span class="spinner">"⏳"</span>
+                                                                                <p>"Starting Claude Code agent..."</p>
+                                                                            </div>
+                                                                            <p class="hint">"Setting up process and connecting to worktree"</p>
+                                                                        </div>
+                                                                    }.into_any()
+                                                                },
+                                                                "running" => {
+                                                                    if has_messages {
+                                                                        view! {
+                                                                            <div class="message-list">
+                                                                                {messages.into_iter().map(|msg| {
+                                                                                    let icon = match msg.sender.as_str() {
+                                                                                        "user" => "👤",
+                                                                                        "agent" => match msg.message_type.as_str() {
+                                                                                            "file_read" => "👁",
+                                                                                            "file_edit" => "✏️", 
+                                                                                            "tool_call" => "🔧",
+                                                                                            _ => "🤖"
+                                                                                        },
+                                                                                        "system" => "🔧",
+                                                                                        _ => "💬"
+                                                                                    };
+                                                                                    
+                                                                                    let message_class = format!("message {}", msg.sender);
+                                                                                    
+                                                                                    view! {
+                                                                                        <div class=message_class>
+                                                                                            <div class="message-header">
+                                                                                                <span class="message-icon">{icon}</span>
+                                                                                                <span class="sender">{msg.sender.clone()}</span>
+                                                                                                <span class="time">{msg.timestamp.clone()}</span>
+                                                                                            </div>
+                                                                                            <div class="message-content">
+                                                                                                {msg.content}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    }
+                                                                                }).collect::<Vec<_>>()}
+                                                                            </div>
+                                                                        }.into_any()
+                                                                    } else {
+                                                                        view! {
+                                                                            <div class="agent-running">
+                                                                                <div class="status-indicator">
+                                                                                    <span class="spinner">"🤖"</span>
+                                                                                    <p>"Claude Code agent is running..."</p>
+                                                                                </div>
+                                                                                <p class="hint">"Waiting for agent to process your request"</p>
+                                                                            </div>
+                                                                        }.into_any()
+                                                                    }
+                                                                },
+                                                                "failed" => {
+                                                                    view! {
+                                                                        <div class="agent-error">
+                                                                            <div class="error-indicator">
+                                                                                <span class="error-icon">"❌"</span>
+                                                                                <p>"Agent process failed to start"</p>
+                                                                            </div>
+                                                                            <p class="error-details">"Check that Claude Code CLI is installed and accessible"</p>
+                                                                            <p class="hint">"Try starting the task again or check the Processes tab for details"</p>
+                                                                        </div>
+                                                                    }.into_any()
+                                                                },
+                                                                "completed" => {
+                                                                    view! {
+                                                                        <div class="agent-completed">
+                                                                            <div class="completion-indicator">
+                                                                                <span class="complete-icon">"✅"</span>
+                                                                                <p>"Agent process completed successfully"</p>
+                                                                            </div>
+                                                                            {if has_messages {
+                                                                                view! {
+                                                                                    <div class="message-list">
+                                                                                        {messages.into_iter().map(|msg| {
+                                                                                            let icon = match msg.sender.as_str() {
+                                                                                                "user" => "👤",
+                                                                                                "agent" => match msg.message_type.as_str() {
+                                                                                                    "file_read" => "👁",
+                                                                                                    "file_edit" => "✏️", 
+                                                                                                    "tool_call" => "🔧",
+                                                                                                    _ => "🤖"
+                                                                                                },
+                                                                                                "system" => "🔧",
+                                                                                                _ => "💬"
+                                                                                            };
+                                                                                            
+                                                                                            let message_class = format!("message {}", msg.sender);
+                                                                                            
+                                                                                            view! {
+                                                                                                <div class=message_class>
+                                                                                                    <div class="message-header">
+                                                                                                        <span class="message-icon">{icon}</span>
+                                                                                                        <span class="sender">{msg.sender.clone()}</span>
+                                                                                                        <span class="time">{msg.timestamp.clone()}</span>
+                                                                                                    </div>
+                                                                                                    <div class="message-content">
+                                                                                                        {msg.content}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            }
+                                                                                        }).collect::<Vec<_>>()}
+                                                                                    </div>
+                                                                                }.into_any()
+                                                                            } else {
+                                                                                view! {
+                                                                                    <p class="hint">"No messages captured during execution"</p>
+                                                                                }.into_any()
+                                                                            }}
+                                                                        </div>
+                                                                    }.into_any()
+                                                                },
+                                                                _ => {
+                                                                    view! {
+                                                                        <div class="agent-unknown">
+                                                                            <p>{format!("Agent status: {}", status)}</p>
+                                                                        </div>
+                                                                    }.into_any()
+                                                                }
+                                                            }
+                                                        } else {
+                                                            view! {
+                                                                <div class="no-agents">
+                                                                    <p>"Agent process status unknown"</p>
+                                                                </div>
+                                                            }.into_any()
+                                                        }}
+                                                    </div>
+                                                    
+                                                    {/* Chat Input - TODO: Enable when interactive chat is implemented */}
+                                                    <div class="chat-input-section">
+                                                        <div class="input-container">
+                                                            <button class="profile-btn" disabled=true>"Profile"</button>
+                                                            <input 
+                                                                type="text" 
+                                                                placeholder="Interactive chat coming soon..."
+                                                                class="message-input"
+                                                                disabled=true
+                                                            />
+                                                            <button class="send-btn" disabled=true>"Send"</button>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                
-                                                {/* Chat Input */}
-                                                <div class="chat-input-section">
-                                                    <div class="input-container">
-                                                        <button class="profile-btn" disabled=true>"Profile"</button>
-                                                        <input 
-                                                            type="text" 
-                                                            placeholder="No active agent session..."
-                                                            class="message-input"
-                                                            disabled=true
-                                                        />
-                                                        <button class="send-btn" disabled=true>"Send"</button>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                            }
                                         }.into_any(),
                                         "diff" => view! {
                                             <div class="diff-tab">
@@ -412,16 +664,58 @@ pub fn TaskSidebar(
                                                 </div>
                                             </div>
                                         }.into_any(),
-                                        "processes" => view! {
-                                            <div class="processes-tab">
-                                                <div class="process-list">
-                                                    <h4>"Claude Code Processes"</h4>
-                                                    <div class="no-processes">
-                                                        <p>"No processes spawned yet"</p>
-                                                        <p class="hint">"Process details with expandable JSON will appear here"</p>
+                                        "processes" => {
+                                            let processes = all_processes.get();
+                                            let has_processes = !processes.is_empty();
+                                            
+                                            view! {
+                                                <div class="processes-tab">
+                                                    <div class="process-list">
+                                                        <h4>"Claude Code Processes"</h4>
+                                                        {if !has_processes {
+                                                            view! {
+                                                                <div class="no-processes">
+                                                                    <p>"No processes spawned yet"</p>
+                                                                    <p class="hint">"Process details with expandable JSON will appear here"</p>
+                                                                </div>
+                                                            }.into_any()
+                                                        } else {
+                                                            view! {
+                                                                <div class="process-items">
+                                                                    {processes.into_iter().map(|proc| {
+                                                                        let proc_id = proc.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                                                                        let status = proc.get("status").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                                                                        let msg_count = proc.get("message_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                                        let task_id = proc.get("task_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                                                                        let json_content = serde_json::to_string_pretty(&proc).unwrap_or_else(|_| "Invalid JSON".to_string());
+                                                                        
+                                                                        let status_class = format!("process-status {}", status);
+                                                                        let proc_id_short = format!("{}...", &proc_id[..8.min(proc_id.len())]);
+                                                                        let task_id_display = format!("Task: {}", task_id);
+                                                                        let status_display = status.clone();
+                                                                        let msg_count_display = format!("{} msgs", msg_count);
+                                                                        
+                                                                        view! {
+                                                                            <div class="process-item">
+                                                                                <div class="process-header">
+                                                                                    <span class="process-id">{proc_id_short}</span>
+                                                                                    <span class="task-id">{task_id_display}</span>
+                                                                                    <span class=status_class>{status_display}</span>
+                                                                                    <span class="message-count">{msg_count_display}</span>
+                                                                                </div>
+                                                                                <details>
+                                                                                    <summary>"Show JSON Details"</summary>
+                                                                                    <pre class="json-content">{json_content}</pre>
+                                                                                </details>
+                                                                            </div>
+                                                                        }
+                                                                    }).collect::<Vec<_>>()}
+                                                                </div>
+                                                            }.into_any()
+                                                        }}
                                                     </div>
                                                 </div>
-                                            </div>
+                                            }
                                         }.into_any(),
                                         _ => view! {}.into_any()
                                     }}

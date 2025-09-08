@@ -317,6 +317,7 @@ async fn list_app_worktrees(app: tauri::AppHandle) -> Result<Vec<String>, String
 
 #[tauri::command]
 async fn start_agent_process(
+    app: tauri::AppHandle,
     task_id: String,
     task_title: String,
     task_description: String,
@@ -324,17 +325,18 @@ async fn start_agent_process(
 ) -> Result<String, String> {
     println!("Tauri command: start_agent_process called for task '{}' in worktree '{}'", task_id, worktree_path);
     let initial_message = format!("{}: {}", task_title, task_description);
-    agent::spawn_claude_process(task_id, initial_message, worktree_path, None)
+    agent::spawn_claude_process(app, task_id, initial_message, worktree_path, None)
 }
 
 #[tauri::command]
 async fn send_agent_message(
+    app: tauri::AppHandle,
     process_id: String,
     message: String,
     worktree_path: String,
 ) -> Result<String, String> {
     println!("Tauri command: send_agent_message called for process '{}' with message: {}", process_id, message);
-    agent::send_message_to_process(&process_id, message, worktree_path)
+    agent::send_message_to_process(app, &process_id, message, worktree_path)
 }
 
 #[tauri::command]

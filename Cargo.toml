@@ -17,6 +17,7 @@ uuid = { version = "1.0", features = ["v4", "js"] }
 chrono = { version = "0.4", features = ["serde", "wasm-bindgen"] }
 console_error_panic_hook = "0.1.7"
 web-sys = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
 
 [workspace]
 members = ["src-tauri"]

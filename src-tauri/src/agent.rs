@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{BufRead, BufReader};
 use std::thread;
-use tauri::{AppHandle, Manager};
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
@@ -78,15 +78,16 @@ fn get_timestamp() -> String {
 
 /// Parses Claude Code JSON output into structured messages based on real format
 fn parse_claude_output(line: &str) -> Option<AgentMessage> {
+    // First try to parse as JSON
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
         let event_type = json.get("type").and_then(|v| v.as_str())?;
-        
+
         match event_type {
             "system" => {
                 // System initialization event
                 let subtype = json.get("subtype").and_then(|v| v.as_str()).unwrap_or("init");
                 let session_id = json.get("session_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-                
+
                 Some(AgentMessage {
                     id: generate_message_id(),
                     sender: "system".to_string(),
@@ -119,14 +120,14 @@ fn parse_claude_output(line: &str) -> Option<AgentMessage> {
                                     "tool_use" => {
                                         let tool_name = content_item.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
                                         let tool_input = content_item.get("input").unwrap_or(&serde_json::Value::Null);
-                                        
+
                                         let message_type = match tool_name {
                                             "Read" => "file_read",
                                             "Edit" | "Write" | "MultiEdit" => "file_edit",
                                             "Bash" => "tool_call",
                                             _ => "tool_call"
                                         };
-                                        
+
                                         return Some(AgentMessage {
                                             id: generate_message_id(),
                                             sender: "agent".to_string(),
@@ -140,7 +141,13 @@ fn parse_claude_output(line: &str) -> Option<AgentMessage> {
                                 }
                             }
                         }
+                        // Return None if no content found
+                        return None;
+                    } else {
+                        return None;
                     }
+                } else {
+                    return None;
                 }
             },
             "user" => {
@@ -151,18 +158,24 @@ fn parse_claude_output(line: &str) -> Option<AgentMessage> {
                             if content_item.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
                                 let content = content_item.get("content").and_then(|v| v.as_str()).unwrap_or("Tool executed");
                                 let is_error = content_item.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-                                
+
                                 return Some(AgentMessage {
                                     id: generate_message_id(),
-                                    sender: if is_error { "system" } else { "user" },
+                                    sender: if is_error { "system".to_string() } else { "user".to_string() },
                                     content: content.to_string(),
                                     timestamp: get_timestamp(),
-                                    message_type: if is_error { "error" } else { "tool_result" },
+                                    message_type: if is_error { "error".to_string() } else { "tool_result".to_string() },
                                     metadata: Some(json.clone()),
                                 });
                             }
                         }
+                        // Return None if no tool_result found
+                        return None;
+                    } else {
+                        return None;
                     }
+                } else {
+                    return None;
                 }
             },
             "result" => {
@@ -170,7 +183,7 @@ fn parse_claude_output(line: &str) -> Option<AgentMessage> {
                 let subtype = json.get("subtype").and_then(|v| v.as_str()).unwrap_or("success");
                 let cost = json.get("total_cost_usd").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let turns = json.get("num_turns").and_then(|v| v.as_i64()).unwrap_or(0);
-                
+
                 return Some(AgentMessage {
                     id: generate_message_id(),
                     sender: "system".to_string(),
@@ -183,14 +196,43 @@ fn parse_claude_output(line: &str) -> Option<AgentMessage> {
             _ => None
         }
     } else {
-        None
+        // Handle non-JSON responses
+        if !line.trim().is_empty() {
+            // Skip empty lines and common non-JSON output
+            let trimmed = line.trim();
+            if trimmed.starts_with("Error:") || trimmed.starts_with("Warning:") {
+                // System error/warning message
+                Some(AgentMessage {
+                    id: generate_message_id(),
+                    sender: "system".to_string(),
+                    content: trimmed.to_string(),
+                    timestamp: get_timestamp(),
+                    message_type: "error".to_string(),
+                    metadata: None,
+                })
+            } else {
+                // Plain text response from Claude
+                println!("Received non-JSON response, treating as plain text: {}", line);
+                Some(AgentMessage {
+                    id: generate_message_id(),
+                    sender: "agent".to_string(),
+                    content: trimmed.to_string(),
+                    timestamp: get_timestamp(),
+                    message_type: "text".to_string(),
+                    metadata: None,
+                })
+            }
+        } else {
+            None
+        }
     }
 }
 
 /// Spawns a new Claude Code process
 pub fn spawn_claude_process(
-    task_id: String, 
-    initial_message: String, 
+    app: tauri::AppHandle,
+    task_id: String,
+    initial_message: String,
     worktree_path: String,
     context: Option<String>
 ) -> Result<String, String> {
@@ -201,24 +243,98 @@ pub fn spawn_claude_process(
     let full_message = if let Some(ctx) = context {
         format!("Previous conversation:\n{}\n\nNew message: {}", ctx, initial_message)
     } else {
-        initial_message
+        initial_message.clone()
     };
 
-    // Build Claude Code command
-    let mut cmd = Command::new("claude");
-    cmd.arg("-p")
-       .arg(&full_message)
-       .arg("--output-format")
-       .arg("stream-json")
-       .arg("--add-dir")
-       .arg(&worktree_path)
-       .stdout(Stdio::piped())
-       .stderr(Stdio::piped());
+    // Try multiple Claude command variations (similar to VS Code code.cmd issue)
+    let claude_commands = ["claude", "claude.exe", "claude.cmd"];
+    let mut cmd = None;
+
+    for command in &claude_commands {
+        let mut test_cmd = Command::new(command);
+        test_cmd.arg("--version")
+               .stdout(Stdio::null())
+               .stderr(Stdio::null())
+               .current_dir(&worktree_path); // Set working directory
+
+        // Inherit environment variables to ensure PATH is available
+        for (key, value) in std::env::vars() {
+            test_cmd.env(key, value);
+        }
+
+        println!("Testing Claude command: {}", command);
+        match test_cmd.status() {
+            Ok(status) if status.success() => {
+                println!("Found working Claude command: {}", command);
+                // let mut working_cmd = Command::new(command);
+                // working_cmd.arg("-p")
+                //           .arg(&full_message)
+                //           .arg("--output-format")
+                //           .arg("stream-json")
+                //           .arg("--verbose")
+                //           .arg("--dangerously-skip-permissions")
+                //           .arg("--add-dir")
+                //           .arg(&worktree_path)
+                //           .stdout(Stdio::piped())
+                //           .stderr(Stdio::piped())
+                //           .current_dir(&worktree_path); // Set working directory
+                let mut working_cmd = if command.ends_with(".cmd") {
+                    // Important: call via cmd.exe to avoid Rust's .cmd escaping guard
+                    let mut c = Command::new("cmd");
+                    c.arg("/C")
+                    .arg(command) // "claude.cmd"
+                    .arg("-p").arg(&full_message)
+                    .arg("--output-format").arg("stream-json")
+                    .arg("--verbose")
+                    .arg("--permission-mode").arg("acceptEdits")
+                    .arg("--dangerously-skip-permissions")
+                    .arg("--allowedTools").arg("Read,Write,Edit,MultiEdit,Bash")
+                    .arg("--add-dir").arg(&worktree_path)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .current_dir(&worktree_path);
+                    c
+                } else {
+                    let mut c = Command::new(command);
+                    c.arg("-p").arg(&full_message)
+                    .arg("--output-format").arg("stream-json")
+                    .arg("--verbose")
+                    .arg("--permission-mode").arg("acceptEdits")
+                    .arg("--dangerously-skip-permissions")
+                    .arg("--allowedTools").arg("Read,Write,Edit,MultiEdit,Bash")
+                    .arg("--add-dir").arg(&worktree_path)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .current_dir(&worktree_path);
+                    c
+                };
+
+                // Inherit environment variables
+                for (key, value) in std::env::vars() {
+                    working_cmd.env(key, value);
+                }
+
+                cmd = Some(working_cmd);
+                break;
+            }
+            Ok(status) => {
+                println!("Command {} exists but failed with status: {}", command, status);
+            }
+            Err(e) => {
+                println!("Command {} not found or failed: {:?}", command, e);
+            }
+        }
+    }
+
+    let mut cmd = cmd.ok_or_else(|| {
+        let attempted = claude_commands.join(", ");
+        format!("Claude Code CLI not found. Tried commands: {}. Please ensure Claude Code is installed and in PATH.", attempted)
+    })?;
 
     println!("Claude Code command: {:?}", cmd);
 
-    // Create initial process entry
-    let mut process = AgentProcess {
+    // Create initial process entry with user message
+    let process = AgentProcess {
         id: process_id.clone(),
         task_id: task_id.clone(),
         status: "starting".to_string(),
@@ -228,10 +344,13 @@ pub fn spawn_claude_process(
             AgentMessage {
                 id: generate_message_id(),
                 sender: "user".to_string(),
-                content: initial_message,
+                content: format!("Task: {}", initial_message),
                 timestamp: get_timestamp(),
                 message_type: "text".to_string(),
-                metadata: None,
+                metadata: Some(serde_json::json!({
+                    "task_id": task_id,
+                    "worktree_path": worktree_path
+                })),
             }
         ],
         raw_output: Vec::new(),
@@ -246,43 +365,77 @@ pub fn spawn_claude_process(
         let processes = get_processes();
         let mut map = processes.lock().unwrap();
         map.insert(process_id.clone(), process.clone());
+        
+        // Emit process creation event
+        match app.emit("agent_process_status", serde_json::json!({
+            "process_id": process_id,
+            "task_id": task_id,
+            "status": "starting"
+        })) {
+            Ok(_) => println!("✅ Emitted agent_process_status event: {} starting", process_id),
+            Err(e) => println!("❌ Failed to emit process status event: {:?}", e)
+        };
+    }
+
+    // Create a temporary config file to set permissions  
+    let config_dir = format!("{}/.claude", worktree_path);
+    std::fs::create_dir_all(&config_dir).ok();
+    let config_path = format!("{}/settings.local.json", config_dir);
+    let config_content = serde_json::json!({
+        "permissionMode": "acceptEdits",
+        "allowedTools": ["Read", "Write", "Edit", "MultiEdit", "Bash"]
+    });
+    if let Ok(config_str) = serde_json::to_string_pretty(&config_content) {
+        std::fs::write(&config_path, config_str).ok();
+        println!("Created Claude config at: {}", config_path);
     }
 
     // Spawn the actual Claude Code process
     match cmd.spawn() {
         Ok(mut child) => {
             println!("Claude Code process spawned successfully with PID: {:?}", child.id());
-            
+
             // Take ownership of stdout and stderr
             let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
             let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-            
+
             // Store the child process
             {
                 let child_processes = get_child_processes();
                 let mut map = child_processes.lock().unwrap();
                 map.insert(process_id.clone(), child);
             }
-            
+
             // Update process status to running
             {
                 let processes = get_processes();
                 let mut map = processes.lock().unwrap();
                 if let Some(proc) = map.get_mut(&process_id) {
                     proc.status = "running".to_string();
+                    
+                    // Emit process status update event
+                    match app.emit("agent_process_status", serde_json::json!({
+                        "process_id": process_id,
+                        "task_id": proc.task_id,
+                        "status": "running"
+                    })) {
+                        Ok(_) => println!("✅ Emitted agent_process_status event: {} running", process_id),
+                        Err(e) => println!("❌ Failed to emit process status event: {:?}", e)
+                    };
                 }
             }
-            
+
             // Spawn thread to read stdout (JSON messages)
             let process_id_stdout = process_id.clone();
             let processes_stdout = get_processes().clone();
+            let app_handle_stdout = app.clone();
             thread::spawn(move || {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
                     match line {
                         Ok(line_content) => {
                             println!("Claude Code stdout: {}", line_content);
-                            
+
                             // Store raw output
                             {
                                 let mut map = processes_stdout.lock().unwrap();
@@ -290,11 +443,13 @@ pub fn spawn_claude_process(
                                     proc.raw_output.push(line_content.clone());
                                 }
                             }
-                            
+
                             // Parse and store structured message
-                            if let Some(message) = parse_claude_output(&line_content) {
-                                let mut map = processes_stdout.lock().unwrap();
-                                if let Some(proc) = map.get_mut(&process_id_stdout) {
+                            match parse_claude_output(&line_content) {
+                                Some(message) => {
+                                    println!("Parsed message: {:?}", message);
+                                    let mut map = processes_stdout.lock().unwrap();
+                                    if let Some(proc) = map.get_mut(&process_id_stdout) {
                                     // Update session info from system events
                                     if message.message_type == "init" || message.message_type == "system" {
                                         if let Some(metadata) = &message.metadata {
@@ -303,7 +458,7 @@ pub fn spawn_claude_process(
                                             }
                                         }
                                     }
-                                    
+
                                     // Update cost and turns from result events
                                     if message.message_type == "result" {
                                         if let Some(metadata) = &message.metadata {
@@ -317,8 +472,23 @@ pub fn spawn_claude_process(
                                         proc.status = "completed".to_string();
                                         proc.end_time = Some(get_timestamp());
                                     }
-                                    
-                                    proc.messages.push(message);
+
+                                        proc.messages.push(message.clone());
+                                        println!("Message stored. Total messages: {}", proc.messages.len());
+                                        
+                                        // Emit Tauri event for real-time updates
+                                        match app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                            "process_id": process_id_stdout,
+                                            "task_id": proc.task_id,
+                                            "message": message
+                                        })) {
+                                            Ok(_) => println!("✅ Emitted agent_message_update event for process {}", process_id_stdout),
+                                            Err(e) => println!("❌ Failed to emit event: {:?}", e)
+                                        };
+                                    }
+                                },
+                                None => {
+                                    println!("Failed to parse message: {}", line_content);
                                 }
                             }
                         }
@@ -328,10 +498,10 @@ pub fn spawn_claude_process(
                         }
                     }
                 }
-                
+
                 println!("Claude Code stdout reader thread finished for process {}", process_id_stdout);
             });
-            
+
             // Spawn thread to read stderr (error messages)
             let process_id_stderr = process_id.clone();
             let processes_stderr = get_processes().clone();
@@ -341,7 +511,7 @@ pub fn spawn_claude_process(
                     match line {
                         Ok(line_content) => {
                             println!("Claude Code stderr: {}", line_content);
-                            
+
                             // Store error as a message
                             let error_message = AgentMessage {
                                 id: generate_message_id(),
@@ -351,7 +521,7 @@ pub fn spawn_claude_process(
                                 message_type: "error".to_string(),
                                 metadata: None,
                             };
-                            
+
                             let mut map = processes_stderr.lock().unwrap();
                             if let Some(proc) = map.get_mut(&process_id_stderr) {
                                 proc.messages.push(error_message);
@@ -363,10 +533,10 @@ pub fn spawn_claude_process(
                         }
                     }
                 }
-                
+
                 println!("Claude Code stderr reader thread finished for process {}", process_id_stderr);
             });
-            
+
             // Spawn thread to monitor process completion
             let process_id_monitor = process_id.clone();
             let processes_monitor = get_processes().clone();
@@ -374,7 +544,7 @@ pub fn spawn_claude_process(
             thread::spawn(move || {
                 // Wait a bit for the process to potentially finish
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                
+
                 // Check if child process is still alive
                 let mut should_wait = true;
                 while should_wait {
@@ -385,16 +555,16 @@ pub fn spawn_claude_process(
                                 Ok(Some(status)) => {
                                     println!("Claude Code process {} finished with status: {}", process_id_monitor, status);
                                     should_wait = false;
-                                    
+
                                     // Update process status
                                     let mut proc_map = processes_monitor.lock().unwrap();
                                     if let Some(proc) = proc_map.get_mut(&process_id_monitor) {
                                         if proc.status == "running" {
-                                            proc.status = if status.success() { "completed" } else { "failed" };
+                                            proc.status = if status.success() { "completed".to_string() } else { "failed".to_string() };
                                             proc.end_time = Some(get_timestamp());
                                         }
                                     }
-                                    
+
                                     // Remove from child processes
                                     child_map.remove(&process_id_monitor);
                                 }
@@ -412,14 +582,20 @@ pub fn spawn_claude_process(
                         }
                     }
                 }
-                
+
                 println!("Process monitor thread finished for process {}", process_id_monitor);
             });
-            
+
             println!("Process {} started successfully with monitoring threads", process_id);
             Ok(process_id)
         }
         Err(e) => {
+            // Log detailed error information
+            println!("Failed to spawn Claude Code process: {:?}", e);
+            println!("Error kind: {:?}", e.kind());
+            println!("Current working directory: {:?}", std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("unknown")));
+            println!("Environment PATH: {:?}", std::env::var("PATH").unwrap_or_else(|_| "not found".to_string()));
+
             // Mark process as failed
             let processes = get_processes();
             let mut map = processes.lock().unwrap();
@@ -457,12 +633,13 @@ pub fn get_process_messages(process_id: &str) -> Vec<AgentMessage> {
 
 /// Sends a new message to an existing process (spawns new process with context)
 pub fn send_message_to_process(
+    app: tauri::AppHandle,
     process_id: &str,
     message: String,
     worktree_path: String,
 ) -> Result<String, String> {
     let processes = get_processes();
-    
+
     // Get existing process and its context
     let context = {
         let map = processes.lock().unwrap();
@@ -487,6 +664,7 @@ pub fn send_message_to_process(
 
     // Spawn new process with context
     let new_process_id = spawn_claude_process(
+        app,
         task_id,
         message,
         worktree_path,
@@ -520,11 +698,11 @@ pub fn kill_process(process_id: &str) -> Result<(), String> {
             let _ = child.wait();
         }
     }
-    
+
     // Update process status
     let processes = get_processes();
     let mut map = processes.lock().unwrap();
-    
+
     if let Some(proc) = map.get_mut(process_id) {
         proc.status = "killed".to_string();
         proc.end_time = Some(get_timestamp());
@@ -539,7 +717,7 @@ pub fn kill_process(process_id: &str) -> Result<(), String> {
 pub fn get_process_list() -> Vec<serde_json::Value> {
     let processes = get_processes();
     let map = processes.lock().unwrap();
-    
+
     map.values()
         .map(|proc| serde_json::json!({
             "id": proc.id,

@@ -38,7 +38,7 @@ pub fn Projects() -> impl IntoView {
                                 let mut task_counts = HashMap::new();
                                 for project in stored_projects {
                                     let project_id = project.id.clone();
-                                    let load_args = serde_json::json!({ "project_id": project_id });
+                                    let load_args = serde_json::json!({ "projectId": project_id });
                                     if let Ok(js_value) = to_value(&load_args) {
                                         match invoke("load_tasks_data", js_value).await {
                                             js_result if !js_result.is_undefined() => {

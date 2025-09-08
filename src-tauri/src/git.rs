@@ -88,7 +88,7 @@ pub fn create_worktree(app: &AppHandle, project_path: &str, task_id: &str) -> Re
     // Create the worktree using git2-rs proper API
     let _worktree = repo.worktree(
         &task_id,  // worktree name
-        &worktree_dir,  // worktree path
+        worktree_dir.as_path(),  // worktree path
         Some(&opts)  // options
     ).map_err(|e| format!("Failed to create worktree: {}", e))?;
 
