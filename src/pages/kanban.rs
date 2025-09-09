@@ -3,7 +3,8 @@ use leptos::html::Dialog;
 use leptos::task::spawn_local;
 use crate::app::AppView;
 use crate::models::{Task, TaskStatus, Project};
-use crate::components::{TaskModal, TaskSidebar, EditTaskModal, EditProjectModal};
+use crate::components::{TaskModal, TaskSidebar, EditTaskModal, EditProjectModal, SettingsModal};
+use crate::models::AgentProfile;
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
 use std::rc::Rc;
@@ -102,6 +103,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     let dialog_ref: NodeRef<Dialog> = NodeRef::new();
     let edit_dialog_ref: NodeRef<Dialog> = NodeRef::new();
     let edit_project_dialog_ref: NodeRef<Dialog> = NodeRef::new();
+    let settings_dialog_ref: NodeRef<Dialog> = NodeRef::new();
 
     // Track which task is being edited
     let (editing_task, set_editing_task) = signal::<Option<Task>>(None);
@@ -120,6 +122,10 @@ pub fn Kanban(project_id: String) -> impl IntoView {
         if let Some(dialog) = dialog_ref.get() {
             let _ = dialog.show_modal();
         }
+    };
+
+    let open_settings_modal = move |_| {
+        if let Some(dialog) = settings_dialog_ref.get() { let _ = dialog.show_modal(); }
     };
 
     // Handler to open the edit project modal
@@ -195,6 +201,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     <button class="btn-secondary kanban-header-btn" on:click=back_to_projects>"🡄"</button>
                     <button class="btn-secondary kanban-header-btn" on:click=open_edit_project_modal>"✎"</button>
                     <button class="btn-primary kanban-header-btn" on:click=open_modal>"🞦"</button>
+                    <button class="btn-secondary kanban-header-btn" title="Settings" on:click=open_settings_modal>"⚙"</button>
                     <button
                         class="btn-secondary kanban-header-btn"
                         on:click={
@@ -585,10 +592,18 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                                                                         "taskId": agent_task_id,
                                                                                                         "taskTitle": task.title,
                                                                                                         "taskDescription": task.description,
-                                                                                                        "worktreePath": agent_worktree_path
+                                                                                                        "worktreePath": agent_worktree_path,
+                                                                                                        "profile": match task.profile {
+                                                                                                            crate::models::AgentProfile::Codex => "codex",
+                                                                                                            crate::models::AgentProfile::ClaudeCode => "claude",
+                                                                                                        }
                                                                                                     });
                                                                                                     
-                                                                                                    web_sys::console::log_1(&format!("Starting agent process for task: {}", agent_task_id).into());
+                                                                                                    let pval = match task.profile {
+                                                                                                        crate::models::AgentProfile::Codex => "codex",
+                                                                                                        crate::models::AgentProfile::ClaudeCode => "claude",
+                                                                                                    };
+                                                                                                    web_sys::console::log_1(&format!("Starting agent process for task: {} with profile {}", agent_task_id, pval).into());
                                                                                                     
                                                                                                     if let Ok(agent_js_value) = to_value(&agent_args) {
                                                                                                         match invoke("start_agent_process", agent_js_value).await {
@@ -897,6 +912,16 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                 on_delete=sidebar_delete_callback
                                 on_open_worktree=Some(sidebar_worktree_callback)
                                 on_open_ide=Some(sidebar_ide_callback)
+                                on_update_profile={
+                                    let set_tasks_for_profile = set_tasks.clone();
+                                    (Box::new(move |task_id: String, profile: AgentProfile| {
+                                        set_tasks_for_profile.update(|tasks| {
+                                            if let Some(t) = tasks.iter_mut().find(|t| t.id == task_id) {
+                                                t.profile = profile.clone();
+                                            }
+                                        });
+                                    }) as Box<dyn Fn(String, AgentProfile) + 'static>)
+                                }
                             />
                         }.into_any()
                     } else {
@@ -944,6 +969,8 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 on_update=update_project
                 dialog_ref=edit_project_dialog_ref
             />
+
+            <SettingsModal dialog_ref=settings_dialog_ref />
         </div>
     }
 }

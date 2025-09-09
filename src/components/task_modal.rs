@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::{ev, html::Dialog};
-use crate::models::{Task, TaskStatus};
+use crate::models::{Task, TaskStatus, AgentProfile};
 use uuid::Uuid;
 use chrono::Utc;
 
@@ -31,6 +31,7 @@ pub fn TaskModal(
             status: TaskStatus::ToDo,                 // New tasks always start in ToDo column
             created_at: Utc::now(),                   // Timestamp for when task was created
             worktree_path: None,                      // No worktree initially
+            profile: AgentProfile::ClaudeCode,        // Default to Claude Code
         };
         
         // Call the parent's callback function to add the task to the kanban board

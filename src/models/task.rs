@@ -3,6 +3,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AgentProfile {
+    ClaudeCode,
+    Codex,
+}
+
+fn default_agent_profile() -> AgentProfile {
+    AgentProfile::ClaudeCode
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskStatus {
     ToDo,
     InProgress,
@@ -42,6 +52,8 @@ pub struct Task {
     pub status: TaskStatus,
     pub created_at: DateTime<Utc>,
     pub worktree_path: Option<String>,
+    #[serde(default = "default_agent_profile")]
+    pub profile: AgentProfile,
 }
 
 impl Task {
@@ -55,6 +67,7 @@ impl Task {
             status: TaskStatus::ToDo,
             created_at: Utc::now(),
             worktree_path: None,
+            profile: default_agent_profile(),
         }
     }
 
