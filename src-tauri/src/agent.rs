@@ -129,7 +129,7 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                     })
                 }
                 "agent_reasoning_section_break" => {
-                    // Skip these as they're just formatting breaks
+                    // Skip these as they're just formatting breaks - don't display in UI
                     None
                 }
                 "agent_reasoning" => {
@@ -203,6 +203,78 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                         timestamp: get_timestamp(),
                         message_type: if is_error { "error".to_string() } else { "tool_result".to_string() },
                         metadata: Some(json),
+                    })
+                }
+                "patch_apply_begin" => {
+                    let call_id = msg.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let auto_approved = msg.get("auto_approved").and_then(|v| v.as_bool()).unwrap_or(false);
+                    
+                    // Extract file changes information
+                    let changes = msg.get("changes").and_then(|v| v.as_object());
+                    let files_count = changes.map(|c| c.len()).unwrap_or(0);
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "agent".to_string(),
+                        content: format!("📝 Starting file operation ({} files) - {}", files_count, 
+                            if auto_approved { "auto-approved" } else { "pending approval" }),
+                        timestamp: get_timestamp(),
+                        message_type: "file_edit_start".to_string(),
+                        metadata: Some(json),
+                    })
+                }
+                "patch_apply_end" => {
+                    let call_id = msg.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let success = msg.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let stdout = msg.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+                    let stderr = msg.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+                    
+                    let content = if success {
+                        format!("✅ File operation completed: {}", stdout.trim())
+                    } else {
+                        format!("❌ File operation failed: {}", stderr.trim())
+                    };
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "agent".to_string(),
+                        content,
+                        timestamp: get_timestamp(),
+                        message_type: "file_edit_end".to_string(),
+                        metadata: Some(json),
+                    })
+                }
+                "turn_diff" => {
+                    let unified_diff = msg.get("unified_diff").and_then(|v| v.as_str()).unwrap_or("");
+                    
+                    // Parse the diff to extract file information
+                    let mut file_name = "unknown file";
+                    let mut additions = 0;
+                    let mut deletions = 0;
+                    
+                    for line in unified_diff.lines() {
+                        if line.starts_with("+++") {
+                            // Extract filename from +++ b/filename
+                            if let Some(name) = line.strip_prefix("+++ b/") {
+                                file_name = name;
+                            } else if let Some(name) = line.strip_prefix("+++ ") {
+                                // Handle absolute paths
+                                file_name = name.split('/').last().unwrap_or(name);
+                            }
+                        } else if line.starts_with('+') && !line.starts_with("+++") {
+                            additions += 1;
+                        } else if line.starts_with('-') && !line.starts_with("---") {
+                            deletions += 1;
+                        }
+                    }
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "agent".to_string(),
+                        content: format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions),
+                        timestamp: get_timestamp(),
+                        message_type: "file_diff".to_string(),
+                        metadata: Some(json), // Store the full diff in metadata for potential expansion
                     })
                 }
                 _ => {

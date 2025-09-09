@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::models::{Task, TaskStatus};
+use crate::models::{Task, TaskStatus, AgentProfile};
 use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -44,6 +44,7 @@ pub fn TaskSidebar(
     #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
     #[prop(into)] on_open_worktree: Option<Box<dyn Fn(String) + 'static>>,
     #[prop(into)] on_open_ide: Option<Box<dyn Fn(String) + 'static>>,
+    on_update_profile: Box<dyn Fn(String, AgentProfile) + 'static>,
     #[prop(into, optional)] _active_process_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // State for showing/hiding full description
@@ -63,6 +64,9 @@ pub fn TaskSidebar(
     let task_id = task.id.clone();
     let _task_worktree_path = task.worktree_path.clone();
     
+    // Local selected profile (default from task)
+    let (selected_profile, set_selected_profile) = signal(task.profile.clone());
+
     // Determine if description is long (more than 5 lines approximately)
     let description_is_long = task_description.len() > 200; // Rough estimate
     
@@ -128,6 +132,25 @@ pub fn TaskSidebar(
         spawn_local(async move {
             // Initial load
             load_all_processes();
+        });
+    }
+
+    // Load persisted agent messages for this task once
+    {
+        let task_id_for_persist = task.id.clone();
+        let set_agent_messages_for_persist = set_agent_messages.clone();
+        spawn_local(async move {
+            let args = serde_json::json!({ "taskId": task_id_for_persist });
+            if let Ok(js_value) = serde_wasm_bindgen::to_value(&args) {
+                let resp = invoke("load_task_agent_messages", js_value).await;
+                if !resp.is_undefined() {
+                    if let Ok(persisted) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(resp) {
+                        if !persisted.is_empty() {
+                            set_agent_messages_for_persist.set(persisted);
+                        }
+                    }
+                }
+            }
         });
     }
     
@@ -196,6 +219,18 @@ pub fn TaskSidebar(
                                     set_id_msg.set(Some(process_id.to_string()));
                                     // Refresh messages for this process
                                     load_msg(process_id.to_string());
+                                    // Also persist current messages snapshot for this task
+                                    let task_id_copy = task_id_msg.to_string();
+                                    let messages_snapshot = agent_messages.get_untracked();
+                                    let save_args = serde_json::json!({
+                                        "taskId": task_id_copy,
+                                        "messages": messages_snapshot
+                                    });
+                                    let _ = wasm_bindgen_futures::spawn_local(async move {
+                                        if let Ok(jsv) = serde_wasm_bindgen::to_value(&save_args) {
+                                            let _ = invoke("save_task_agent_messages", jsv).await;
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -329,9 +364,16 @@ pub fn TaskSidebar(
                                         </div>
                                         <div class="config-row">
                                             <label>"Profile:"</label>
-                                            <select>
-                                                <option value="default">"Default"</option>
-                                                <option value="expert">"Expert"</option>
+                                            <select on:change=move |ev| {
+                                                let value = event_target_value(&ev);
+                                                let profile = match value.as_str() {
+                                                    "codex" => AgentProfile::Codex,
+                                                    _ => AgentProfile::ClaudeCode,
+                                                };
+                                                set_selected_profile.set(profile);
+                                            }>
+                                                <option value="claude" selected=matches!(selected_profile.get(), AgentProfile::ClaudeCode)>"Claude Code"</option>
+                                                <option value="codex" selected=matches!(selected_profile.get(), AgentProfile::Codex)>"Codex"</option>
                                             </select>
                                         </div>
                                         <div class="config-row">
@@ -347,6 +389,8 @@ pub fn TaskSidebar(
                                                 let task_id_for_start = task_id.clone();
                                                 let on_update_status = on_update_status.clone();
                                                 move |_| {
+                                                    // Persist selected profile first if callback is provided
+                                                    on_update_profile(task_id_for_start.clone(), selected_profile.get_untracked());
                                                     on_update_status(task_id_for_start.clone(), TaskStatus::InProgress);
                                                 }
                                             }
@@ -508,7 +552,7 @@ pub fn TaskSidebar(
                                                                         <div class="agent-loading">
                                                                             <div class="loading-indicator">
                                                                                 <span class="spinner">"⏳"</span>
-                                                                                <p>"Starting Claude Code agent..."</p>
+                                                                                <p>"Starting agent..."</p>
                                                                             </div>
                                                                             <p class="hint">"Setting up process and connecting to worktree"</p>
                                                                         </div>
@@ -518,34 +562,125 @@ pub fn TaskSidebar(
                                                                     if has_messages {
                                                                         view! {
                                                                             <div class="message-list">
-                                                                                {messages.into_iter().map(|msg| {
-                                                                                    let icon = match msg.sender.as_str() {
-                                                                                        "user" => "👤",
-                                                                                        "agent" => match msg.message_type.as_str() {
-                                                                                            "file_read" => "👁",
-                                                                                            "file_edit" => "✏️", 
-                                                                                            "tool_call" => "🔧",
-                                                                                            _ => "🤖"
-                                                                                        },
-                                                                                        "system" => "🔧",
-                                                                                        _ => "💬"
-                                                                                    };
+                                                                                {
+                                                                                    // Group agent_reasoning messages together
+                                                                                    let mut processed_messages = Vec::new();
+                                                                                    let mut reasoning_messages = Vec::new();
                                                                                     
-                                                                                    let message_class = format!("message {}", msg.sender);
-                                                                                    
-                                                                                    view! {
-                                                                                        <div class=message_class>
-                                                                                            <div class="message-header">
-                                                                                                <span class="message-icon">{icon}</span>
-                                                                                                <span class="sender">{msg.sender.clone()}</span>
-                                                                                                <span class="time">{msg.timestamp.clone()}</span>
-                                                                                            </div>
-                                                                                            <div class="message-content">
-                                                                                                {msg.content}
-                                                                                            </div>
-                                                                                        </div>
+                                                                                    for msg in messages.into_iter().filter(|msg| !(msg.sender == "system" && msg.content.trim().is_empty())) {
+                                                                                        if msg.message_type == "agent_reasoning" {
+                                                                                            reasoning_messages.push(msg);
+                                                                                        } else {
+                                                                                            // If we have accumulated reasoning messages, add them as a group first
+                                                                                            if !reasoning_messages.is_empty() {
+                                                                                                let reasoning_count = reasoning_messages.len();
+                                                                                                let reasoning_preview = reasoning_messages.first().map(|m| {
+                                                                                                    if m.content.len() > 100 {
+                                                                                                        format!("{}...", &m.content[..100])
+                                                                                                    } else {
+                                                                                                        m.content.clone()
+                                                                                                    }
+                                                                                                }).unwrap_or_default();
+                                                                                                
+                                                                                                let reasoning_details = reasoning_messages.clone();
+                                                                                                processed_messages.push(view! {
+                                                                                                    <div class="message agent reasoning-group">
+                                                                                                        <div class="message-header">
+                                                                                                            <span class="message-icon">"🧠"</span>
+                                                                                                            <span class="sender">"agent"</span>
+                                                                                                            <span class="reasoning-count">"{reasoning_count} thoughts"</span>
+                                                                                                        </div>
+                                                                                                        <div class="message-content">
+                                                                                                            <details>
+                                                                                                                <summary>{reasoning_preview}</summary>
+                                                                                                                <div class="reasoning-details">
+                                                                                                                    {reasoning_details.into_iter().map(|reasoning_msg| {
+                                                                                                                        view! {
+                                                                                                                            <div class="reasoning-item">
+                                                                                                                                <div class="reasoning-content">{reasoning_msg.content}</div>
+                                                                                                                            </div>
+                                                                                                                        }
+                                                                                                                    }).collect::<Vec<_>>()}
+                                                                                                                </div>
+                                                                                                            </details>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                }.into_any());
+                                                                                                reasoning_messages.clear();
+                                                                                            }
+                                                                                            
+                                                                                            // Add the current non-reasoning message
+                                                                                            let icon = match msg.sender.as_str() {
+                                                                                                "user" => "👤",
+                                                                                                "agent" => match msg.message_type.as_str() {
+                                                                                                    "file_read" => "👁",
+                                                                                                    "file_edit" => "✏️",
+                                                                                                    "file_edit_start" => "📝",
+                                                                                                    "file_edit_end" => "✅",
+                                                                                                    "file_diff" => "📄",
+                                                                                                    "tool_call" => "🔧",
+                                                                                                    _ => "🤖"
+                                                                                                },
+                                                                                                "system" => "🔧",
+                                                                                                _ => "💬"
+                                                                                            };
+                                                                                            
+                                                                                            let message_class = format!("message {}", msg.sender);
+                                                                                            
+                                                                                            processed_messages.push(view! {
+                                                                                                <div class=message_class>
+                                                                                                    <div class="message-header">
+                                                                                                        <span class="message-icon">{icon}</span>
+                                                                                                        <span class="sender">{msg.sender.clone()}</span>
+                                                                                                        <span class="time">{msg.timestamp.clone()}</span>
+                                                                                                    </div>
+                                                                                                    <div class="message-content">
+                                                                                                        {msg.content}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            }.into_any());
+                                                                                        }
                                                                                     }
-                                                                                }).collect::<Vec<_>>()}
+                                                                                    
+                                                                                    // Don't forget any remaining reasoning messages at the end
+                                                                                    if !reasoning_messages.is_empty() {
+                                                                                        let reasoning_count = reasoning_messages.len();
+                                                                                        let reasoning_preview = reasoning_messages.first().map(|m| {
+                                                                                            if m.content.len() > 100 {
+                                                                                                format!("{}...", &m.content[..100])
+                                                                                            } else {
+                                                                                                m.content.clone()
+                                                                                            }
+                                                                                        }).unwrap_or_default();
+                                                                                        
+                                                                                        let reasoning_details = reasoning_messages.clone();
+                                                                                        processed_messages.push(view! {
+                                                                                            <div class="message agent reasoning-group">
+                                                                                                <div class="message-header">
+                                                                                                    <span class="message-icon">"🧠"</span>
+                                                                                                    <span class="sender">"agent"</span>
+                                                                                                    <span class="reasoning-count">"{reasoning_count} thoughts"</span>
+                                                                                                </div>
+                                                                                                <div class="message-content">
+                                                                                                    <details>
+                                                                                                        <summary>{reasoning_preview}</summary>
+                                                                                                        <div class="reasoning-details">
+                                                                                                            {reasoning_details.into_iter().map(|reasoning_msg| {
+                                                                                                                view! {
+                                                                                                                    <div class="reasoning-item">
+                                                                                                                        <div class="reasoning-content">{reasoning_msg.content}</div>
+                                                                                                                    </div>
+                                                                                                                }
+                                                                                                            }).collect::<Vec<_>>()}
+                                                                                                        </div>
+                                                                                                    </details>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        }.into_any());
+                                                                                    }
+                                                                                    
+                                                                                    processed_messages
+                                                                                }
                                                                             </div>
                                                                         }.into_any()
                                                                     } else {
@@ -553,7 +688,7 @@ pub fn TaskSidebar(
                                                                             <div class="agent-running">
                                                                                 <div class="status-indicator">
                                                                                     <span class="spinner">"🤖"</span>
-                                                                                    <p>"Claude Code agent is running..."</p>
+                                                                                    <p>"Agent is running..."</p>
                                                                                 </div>
                                                                                 <p class="hint">"Waiting for agent to process your request"</p>
                                                                             </div>
@@ -582,34 +717,125 @@ pub fn TaskSidebar(
                                                                             {if has_messages {
                                                                                 view! {
                                                                                     <div class="message-list">
-                                                                                        {messages.into_iter().map(|msg| {
-                                                                                            let icon = match msg.sender.as_str() {
-                                                                                                "user" => "👤",
-                                                                                                "agent" => match msg.message_type.as_str() {
-                                                                                                    "file_read" => "👁",
-                                                                                                    "file_edit" => "✏️", 
-                                                                                                    "tool_call" => "🔧",
-                                                                                                    _ => "🤖"
-                                                                                                },
-                                                                                                "system" => "🔧",
-                                                                                                _ => "💬"
-                                                                                            };
+                                                                                        {
+                                                                                            // Group agent_reasoning messages together for completed status too
+                                                                                            let mut processed_messages = Vec::new();
+                                                                                            let mut reasoning_messages = Vec::new();
                                                                                             
-                                                                                            let message_class = format!("message {}", msg.sender);
-                                                                                            
-                                                                                            view! {
-                                                                                                <div class=message_class>
-                                                                                                    <div class="message-header">
-                                                                                                        <span class="message-icon">{icon}</span>
-                                                                                                        <span class="sender">{msg.sender.clone()}</span>
-                                                                                                        <span class="time">{msg.timestamp.clone()}</span>
-                                                                                                    </div>
-                                                                                                    <div class="message-content">
-                                                                                                        {msg.content}
-                                                                                                    </div>
-                                                                                                </div>
+                                                                                            for msg in messages.into_iter().filter(|msg| !(msg.sender == "system" && msg.content.trim().is_empty())) {
+                                                                                                if msg.message_type == "agent_reasoning" {
+                                                                                                    reasoning_messages.push(msg);
+                                                                                                } else {
+                                                                                                    // If we have accumulated reasoning messages, add them as a group first
+                                                                                                    if !reasoning_messages.is_empty() {
+                                                                                                        let reasoning_count = reasoning_messages.len();
+                                                                                                        let reasoning_preview = reasoning_messages.first().map(|m| {
+                                                                                                            if m.content.len() > 100 {
+                                                                                                                format!("{}...", &m.content[..100])
+                                                                                                            } else {
+                                                                                                                m.content.clone()
+                                                                                                            }
+                                                                                                        }).unwrap_or_default();
+                                                                                                        
+                                                                                                        let reasoning_details = reasoning_messages.clone();
+                                                                                                        processed_messages.push(view! {
+                                                                                                            <div class="message agent reasoning-group">
+                                                                                                                <div class="message-header">
+                                                                                                                    <span class="message-icon">"🧠"</span>
+                                                                                                                    <span class="sender">"agent"</span>
+                                                                                                                    <span class="reasoning-count">"{reasoning_count} thoughts"</span>
+                                                                                                                </div>
+                                                                                                                <div class="message-content">
+                                                                                                                    <details>
+                                                                                                                        <summary>{reasoning_preview}</summary>
+                                                                                                                        <div class="reasoning-details">
+                                                                                                                            {reasoning_details.into_iter().map(|reasoning_msg| {
+                                                                                                                                view! {
+                                                                                                                                    <div class="reasoning-item">
+                                                                                                                                        <div class="reasoning-content">{reasoning_msg.content}</div>
+                                                                                                                                    </div>
+                                                                                                                                }
+                                                                                                                            }).collect::<Vec<_>>()}
+                                                                                                                        </div>
+                                                                                                                    </details>
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                        }.into_any());
+                                                                                                        reasoning_messages.clear();
+                                                                                                    }
+                                                                                                    
+                                                                                                    // Add the current non-reasoning message
+                                                                                                    let icon = match msg.sender.as_str() {
+                                                                                                        "user" => "👤",
+                                                                                                        "agent" => match msg.message_type.as_str() {
+                                                                                                            "file_read" => "👁",
+                                                                                                            "file_edit" => "✏️",
+                                                                                                            "file_edit_start" => "📝",
+                                                                                                            "file_edit_end" => "✅",
+                                                                                                            "file_diff" => "📄",
+                                                                                                            "tool_call" => "🔧",
+                                                                                                            _ => "🤖"
+                                                                                                        },
+                                                                                                        "system" => "🔧",
+                                                                                                        _ => "💬"
+                                                                                                    };
+                                                                                                    
+                                                                                                    let message_class = format!("message {}", msg.sender);
+                                                                                                    
+                                                                                                    processed_messages.push(view! {
+                                                                                                        <div class=message_class>
+                                                                                                            <div class="message-header">
+                                                                                                                <span class="message-icon">{icon}</span>
+                                                                                                                <span class="sender">{msg.sender.clone()}</span>
+                                                                                                                <span class="time">{msg.timestamp.clone()}</span>
+                                                                                                            </div>
+                                                                                                            <div class="message-content">
+                                                                                                                {msg.content}
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    }.into_any());
+                                                                                                }
                                                                                             }
-                                                                                        }).collect::<Vec<_>>()}
+                                                                                            
+                                                                                            // Don't forget any remaining reasoning messages at the end
+                                                                                            if !reasoning_messages.is_empty() {
+                                                                                                let reasoning_count = reasoning_messages.len();
+                                                                                                let reasoning_preview = reasoning_messages.first().map(|m| {
+                                                                                                    if m.content.len() > 100 {
+                                                                                                        format!("{}...", &m.content[..100])
+                                                                                                    } else {
+                                                                                                        m.content.clone()
+                                                                                                    }
+                                                                                                }).unwrap_or_default();
+                                                                                                
+                                                                                                let reasoning_details = reasoning_messages.clone();
+                                                                                                processed_messages.push(view! {
+                                                                                                    <div class="message agent reasoning-group">
+                                                                                                        <div class="message-header">
+                                                                                                            <span class="message-icon">"🧠"</span>
+                                                                                                            <span class="sender">"agent"</span>
+                                                                                                            <span class="reasoning-count">"{reasoning_count} thoughts"</span>
+                                                                                                        </div>
+                                                                                                        <div class="message-content">
+                                                                                                            <details>
+                                                                                                                <summary>{reasoning_preview}</summary>
+                                                                                                                <div class="reasoning-details">
+                                                                                                                    {reasoning_details.into_iter().map(|reasoning_msg| {
+                                                                                                                        view! {
+                                                                                                                            <div class="reasoning-item">
+                                                                                                                                <div class="reasoning-content">{reasoning_msg.content}</div>
+                                                                                                                            </div>
+                                                                                                                        }
+                                                                                                                    }).collect::<Vec<_>>()}
+                                                                                                                </div>
+                                                                                                            </details>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                }.into_any());
+                                                                                            }
+                                                                                            
+                                                                                            processed_messages
+                                                                                        }
                                                                                     </div>
                                                                                 }.into_any()
                                                                             } else {
@@ -671,7 +897,7 @@ pub fn TaskSidebar(
                                             view! {
                                                 <div class="processes-tab">
                                                     <div class="process-list">
-                                                        <h4>"Claude Code Processes"</h4>
+                                                        <h4>"Agent Processes"</h4>
                                                         {if !has_processes {
                                                             view! {
                                                                 <div class="no-processes">
@@ -728,3 +954,4 @@ pub fn TaskSidebar(
         </div>
     }
 }
+
