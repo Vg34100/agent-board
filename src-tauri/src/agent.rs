@@ -954,28 +954,30 @@ pub fn spawn_codex_process(
     let process_id = generate_process_id();
     println!("Spawning Codex process {} for task {}", process_id, task_id);
 
-    // Test for npx availability first, then try direct codex commands as fallback
+    // Try codex.cmd directly first, then fallback to npx if needed
     let mut cmd = None;
     
-    // First try the proper npx wrapper (recommended approach)
-    println!("Testing npx availability for Codex...");
-    let mut npx_test = Command::new("npx");
-    npx_test.arg("--version")
+    // First try direct codex.cmd command
+    println!("Testing codex.cmd availability...");
+    let mut codex_test = Command::new("cmd");
+    codex_test.arg("/C")
+        .arg("codex.cmd")
+        .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .current_dir(&worktree_path);
     
     for (key, value) in std::env::vars() {
-        npx_test.env(key, value);
+        codex_test.env(key, value);
     }
     
-    match npx_test.status() {
+    match codex_test.status() {
         Ok(status) if status.success() => {
-            println!("Found npx, using proper Codex command: npx -y @openai/codex exec");
-            let mut working_cmd = Command::new("npx");
+            println!("Found codex.cmd, using direct command: codex.cmd exec");
+            let mut working_cmd = Command::new("cmd");
             working_cmd
-                .arg("-y")
-                .arg("@openai/codex")
+                .arg("/C")
+                .arg("codex.cmd")
                 .arg("exec")
                 .arg("--json")
                 .arg("--skip-git-repo-check")
@@ -993,16 +995,61 @@ pub fn spawn_codex_process(
             cmd = Some(working_cmd);
         }
         Ok(status) => {
-            println!("npx exists but failed with status: {}", status);
+            println!("codex.cmd exists but failed with status: {}", status);
         }
         Err(e) => {
-            println!("npx not found: {:?}, trying direct codex commands...", e);
+            println!("codex.cmd not found: {:?}, trying npx fallback...", e);
         }
     }
     
-    // Fallback to direct codex commands if npx is not available
+    // Fallback to npx approach if codex.cmd is not available
     if cmd.is_none() {
-        let codex_commands = ["codex", "codex.exe", "codex.cmd"];
+        println!("Testing npx availability for Codex fallback...");
+        let mut npx_test = Command::new("npx");
+        npx_test.arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .current_dir(&worktree_path);
+        
+        for (key, value) in std::env::vars() {
+            npx_test.env(key, value);
+        }
+        
+        match npx_test.status() {
+            Ok(status) if status.success() => {
+                println!("Found npx, using fallback Codex command: npx -y @openai/codex exec");
+                let mut working_cmd = Command::new("npx");
+                working_cmd
+                    .arg("-y")
+                    .arg("@openai/codex")
+                    .arg("exec")
+                    .arg("--json")
+                    .arg("--skip-git-repo-check")
+                    .arg("--dangerously-bypass-approvals-and-sandbox")
+                    .arg("--sandbox").arg("danger-full-access")
+                    .stdin(Stdio::piped())  // We'll pass prompt via stdin
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .current_dir(&worktree_path);
+
+                for (key, value) in std::env::vars() {
+                    working_cmd.env(key, value);
+                }
+
+                cmd = Some(working_cmd);
+            }
+            Ok(status) => {
+                println!("npx exists but failed with status: {}", status);
+            }
+            Err(e) => {
+                println!("npx not found: {:?}, trying other direct codex commands...", e);
+            }
+        }
+    }
+    
+    // Final fallback to other direct codex commands if both codex.cmd and npx fail
+    if cmd.is_none() {
+        let codex_commands = ["codex", "codex.exe"];
         
         for command in &codex_commands {
             let mut test_cmd = Command::new(command);
@@ -1019,10 +1066,8 @@ pub fn spawn_codex_process(
             match test_cmd.status() {
                 Ok(status) if status.success() => {
                     println!("Found working fallback Codex command: {}", command);
-                    let mut working_cmd = if command.ends_with(".cmd") {
-                        let mut c = Command::new("cmd");
-                        c.arg("/C")
-                        .arg(command)
+                    let mut working_cmd = Command::new(command);
+                    working_cmd
                         .arg("exec")
                         .arg("--json")
                         .arg("--skip-git-repo-check")
@@ -1032,20 +1077,6 @@ pub fn spawn_codex_process(
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .current_dir(&worktree_path);
-                        c
-                    } else {
-                        let mut c = Command::new(command);
-                        c.arg("exec")
-                        .arg("--json")
-                        .arg("--skip-git-repo-check")
-                        .arg("--dangerously-bypass-approvals-and-sandbox")
-                        .arg("--sandbox").arg("danger-full-access")
-                        .stdin(Stdio::piped())  // Pass prompt via stdin
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .current_dir(&worktree_path);
-                        c
-                    };
 
                     for (key, value) in std::env::vars() {
                         working_cmd.env(key, value);
@@ -1066,7 +1097,7 @@ pub fn spawn_codex_process(
 
     let Some(mut cmd) = cmd else {
         return Err(format!(
-            "Codex CLI not found. Tried npx -y @openai/codex exec and direct codex commands. Ensure Codex is installed (npm install -g @openai/codex) or npx is available."
+            "Codex CLI not found. Tried codex.cmd exec, npx -y @openai/codex exec, and direct codex commands. Ensure Codex is installed (npm install -g @openai/codex) or available in PATH."
         ));
     };
 
