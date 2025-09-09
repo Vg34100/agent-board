@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::io::{BufRead, BufReader};
 use std::thread;
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
@@ -253,7 +253,7 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                     })
                 }
                 "patch_apply_begin" => {
-                    let call_id = msg.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let _call_id = msg.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
                     let auto_approved = msg.get("auto_approved").and_then(|v| v.as_bool()).unwrap_or(false);
                     
                     // Extract file changes information
@@ -271,7 +271,7 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                     })
                 }
                 "patch_apply_end" => {
-                    let call_id = msg.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let _call_id = msg.get("call_id").and_then(|v| v.as_str()).unwrap_or("unknown");
                     let success = msg.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
                     let stdout = msg.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
                     let stderr = msg.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
@@ -1178,6 +1178,7 @@ pub fn spawn_codex_process(
 
                         // Handle multiple JSON objects on the same line
                         let json_objects = split_json_objects(trimmed);
+                        let objects_found = !json_objects.is_empty();
                         
                         for json_str in json_objects {
                             if let Some(message) = parse_codex_output(&json_str) {
@@ -1195,7 +1196,7 @@ pub fn spawn_codex_process(
                         }
                         
                         // If no JSON objects found, try accumulated buffer
-                        if json_objects.is_empty() && !buf.is_empty() {
+                        if !objects_found && !buf.is_empty() {
                             if let Some(message) = parse_codex_output(&buf) {
                                 buf.clear();
                                 {
