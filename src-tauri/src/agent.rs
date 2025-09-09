@@ -76,6 +76,197 @@ fn get_timestamp() -> String {
     format!("{}", now)
 }
 
+/// Parses Codex CLI JSONL events into AgentMessage based on actual Codex output format
+fn parse_codex_output(line: &str) -> Option<AgentMessage> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() { return None; }
+    
+    // First try to parse as JSON
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        // Handle session configuration JSON (first line output)
+        if json.get("workdir").is_some() || json.get("sandbox").is_some() || json.get("approval").is_some() {
+            let workdir = json.get("workdir").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let sandbox = json.get("sandbox").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let approval = json.get("approval").and_then(|v| v.as_str()).unwrap_or("unknown");
+            
+            return Some(AgentMessage {
+                id: generate_message_id(),
+                sender: "system".to_string(),
+                content: format!("Codex session initialized (workdir: {}, sandbox: {}, approval: {})", workdir, sandbox, approval),
+                timestamp: get_timestamp(),
+                message_type: "config".to_string(),
+                metadata: Some(json),
+            });
+        }
+        
+        // Handle prompt input JSON (user message sent to Codex)
+        if let Some(prompt) = json.get("prompt").and_then(|v| v.as_str()) {
+            return Some(AgentMessage {
+                id: generate_message_id(),
+                sender: "user".to_string(),
+                content: prompt.to_string(),
+                timestamp: get_timestamp(),
+                message_type: "text".to_string(),
+                metadata: Some(json),
+            });
+        }
+        
+        // Handle Codex event messages with id/msg structure
+        if let (Some(id), Some(msg)) = (json.get("id"), json.get("msg")) {
+            let event_id = id.as_str().unwrap_or("unknown");
+            let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            
+            match msg_type {
+                "task_started" => {
+                    let model_context = msg.get("model_context_window").and_then(|v| v.as_u64()).unwrap_or(0);
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "system".to_string(),
+                        content: format!("Task started (ID: {}, context window: {})", event_id, model_context),
+                        timestamp: get_timestamp(),
+                        message_type: "task_started".to_string(),
+                        metadata: Some(json),
+                    })
+                }
+                "agent_reasoning_section_break" => {
+                    // Skip these as they're just formatting breaks
+                    None
+                }
+                "agent_reasoning" => {
+                    let text = msg.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    if !text.is_empty() {
+                        Some(AgentMessage {
+                            id: generate_message_id(),
+                            sender: "agent".to_string(),
+                            content: text.to_string(),
+                            timestamp: get_timestamp(),
+                            message_type: "agent_reasoning".to_string(),
+                            metadata: Some(json),
+                        })
+                    } else {
+                        None
+                    }
+                }
+                "agent_message" => {
+                    let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "agent".to_string(),
+                        content: text.to_string(),
+                        timestamp: get_timestamp(),
+                        message_type: "agent_message".to_string(),
+                        metadata: Some(json),
+                    })
+                }
+                "token_count" => {
+                    let input_tokens = msg.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let output_tokens = msg.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let total_tokens = msg.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "system".to_string(),
+                        content: format!("Token usage: {} input, {} output, {} total", input_tokens, output_tokens, total_tokens),
+                        timestamp: get_timestamp(),
+                        message_type: "token_count".to_string(),
+                        metadata: Some(json),
+                    })
+                }
+                "tool_use" => {
+                    let tool_name = msg.get("tool").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let tool_input = msg.get("input").unwrap_or(&serde_json::Value::Null);
+                    
+                    let message_type = match tool_name {
+                        "read_file" | "read" => "file_read",
+                        "edit_file" | "write_file" | "edit" | "write" => "file_edit",
+                        "bash" | "shell" => "tool_call",
+                        _ => "tool_call"
+                    };
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "agent".to_string(),
+                        content: format!("Using tool: {} - {}", tool_name, tool_input),
+                        timestamp: get_timestamp(),
+                        message_type: message_type.to_string(),
+                        metadata: Some(json),
+                    })
+                }
+                "tool_result" => {
+                    let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("Tool executed");
+                    let is_error = msg.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: if is_error { "system".to_string() } else { "user".to_string() },
+                        content: content.to_string(),
+                        timestamp: get_timestamp(),
+                        message_type: if is_error { "error".to_string() } else { "tool_result".to_string() },
+                        metadata: Some(json),
+                    })
+                }
+                _ => {
+                    // Handle unknown event types
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "system".to_string(),
+                        content: format!("Codex event: {} (ID: {})", msg_type, event_id),
+                        timestamp: get_timestamp(),
+                        message_type: msg_type.to_string(),
+                        metadata: Some(json),
+                    })
+                }
+            }
+        } else { 
+            // Handle other JSON structures as raw data
+            Some(AgentMessage {
+                id: generate_message_id(),
+                sender: "system".to_string(),
+                content: format!("Raw Codex data: {}", trimmed),
+                timestamp: get_timestamp(),
+                message_type: "json_data".to_string(),
+                metadata: Some(json),
+            })
+        }
+    } else {
+        // Handle non-JSON output
+        println!("Codex non-JSON output: {}", trimmed);
+        
+        // Skip log lines from Codex CLI
+        if trimmed.contains("INFO") || trimmed.contains("DEBUG") || trimmed.contains("WARN") {
+            if trimmed.contains("codex_core") || trimmed.contains("codex_exec") {
+                // These are Codex internal logs, skip for cleaner output
+                return None;
+            }
+        }
+        
+        // Handle special status messages
+        if trimmed.contains("Shutting down") || trimmed.contains("interrupt received") {
+            return Some(AgentMessage {
+                id: generate_message_id(),
+                sender: "system".to_string(),
+                content: trimmed.to_string(),
+                timestamp: get_timestamp(),
+                message_type: "system_status".to_string(),
+                metadata: None,
+            });
+        }
+        
+        // Handle any other non-empty text as agent output
+        if !trimmed.is_empty() {
+            Some(AgentMessage {
+                id: generate_message_id(),
+                sender: "agent".to_string(),
+                content: trimmed.to_string(),
+                timestamp: get_timestamp(),
+                message_type: "text".to_string(),
+                metadata: None,
+            })
+        } else {
+            None
+        }
+    }
+}
 /// Parses Claude Code JSON output into structured messages based on real format
 fn parse_claude_output(line: &str) -> Option<AgentMessage> {
     // First try to parse as JSON
@@ -541,6 +732,7 @@ pub fn spawn_claude_process(
             let process_id_monitor = process_id.clone();
             let processes_monitor = get_processes().clone();
             let child_processes_monitor = get_child_processes().clone();
+            let app_handle_monitor = app.clone();
             thread::spawn(move || {
                 // Wait a bit for the process to potentially finish
                 std::thread::sleep(std::time::Duration::from_secs(1));
@@ -565,6 +757,12 @@ pub fn spawn_claude_process(
                                         }
                                     }
 
+                                    // Emit status update event
+                                    let _ = app_handle_monitor.emit("agent_process_status", serde_json::json!({
+                                        "process_id": process_id_monitor,
+                                        "status": if status.success() { "completed" } else { "failed" }
+                                    }));
+
                                     // Remove from child processes
                                     child_map.remove(&process_id_monitor);
                                 }
@@ -583,7 +781,7 @@ pub fn spawn_claude_process(
                     }
                 }
 
-                println!("Process monitor thread finished for process {}", process_id_monitor);
+            println!("Process monitor thread finished for process {}", process_id_monitor);
             });
 
             println!("Process {} started successfully with monitoring threads", process_id);
@@ -604,6 +802,350 @@ pub fn spawn_claude_process(
                 proc.end_time = Some(get_timestamp());
             }
             Err(format!("Failed to spawn Claude Code process: {}", e))
+        }
+    }
+}
+
+/// Spawns a new Codex (ChatGPT Code) process
+pub fn spawn_codex_process(
+    app: tauri::AppHandle,
+    task_id: String,
+    initial_message: String,
+    worktree_path: String,
+    _context: Option<String>,
+) -> Result<String, String> {
+    let process_id = generate_process_id();
+    println!("Spawning Codex process {} for task {}", process_id, task_id);
+
+    // Test for npx availability first, then try direct codex commands as fallback
+    let mut cmd = None;
+    
+    // First try the proper npx wrapper (recommended approach)
+    println!("Testing npx availability for Codex...");
+    let mut npx_test = Command::new("npx");
+    npx_test.arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .current_dir(&worktree_path);
+    
+    for (key, value) in std::env::vars() {
+        npx_test.env(key, value);
+    }
+    
+    match npx_test.status() {
+        Ok(status) if status.success() => {
+            println!("Found npx, using proper Codex command: npx -y @openai/codex exec");
+            let mut working_cmd = Command::new("npx");
+            working_cmd
+                .arg("-y")
+                .arg("@openai/codex")
+                .arg("exec")
+                .arg("--json")
+                .arg("--skip-git-repo-check")
+                .arg("--dangerously-bypass-approvals-and-sandbox")
+                .arg("--sandbox").arg("danger-full-access")
+                .stdin(Stdio::piped())  // We'll pass prompt via stdin
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .current_dir(&worktree_path);
+
+            for (key, value) in std::env::vars() {
+                working_cmd.env(key, value);
+            }
+
+            cmd = Some(working_cmd);
+        }
+        Ok(status) => {
+            println!("npx exists but failed with status: {}", status);
+        }
+        Err(e) => {
+            println!("npx not found: {:?}, trying direct codex commands...", e);
+        }
+    }
+    
+    // Fallback to direct codex commands if npx is not available
+    if cmd.is_none() {
+        let codex_commands = ["codex", "codex.exe", "codex.cmd"];
+        
+        for command in &codex_commands {
+            let mut test_cmd = Command::new(command);
+            test_cmd.arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .current_dir(&worktree_path);
+
+            for (key, value) in std::env::vars() {
+                test_cmd.env(key, value);
+            }
+
+            println!("Testing fallback Codex command: {}", command);
+            match test_cmd.status() {
+                Ok(status) if status.success() => {
+                    println!("Found working fallback Codex command: {}", command);
+                    let mut working_cmd = if command.ends_with(".cmd") {
+                        let mut c = Command::new("cmd");
+                        c.arg("/C")
+                        .arg(command)
+                        .arg("exec")
+                        .arg("--json")
+                        .arg("--skip-git-repo-check")
+                        .arg("--dangerously-bypass-approvals-and-sandbox")
+                        .arg("--sandbox").arg("danger-full-access")
+                        .stdin(Stdio::piped())  // Pass prompt via stdin
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .current_dir(&worktree_path);
+                        c
+                    } else {
+                        let mut c = Command::new(command);
+                        c.arg("exec")
+                        .arg("--json")
+                        .arg("--skip-git-repo-check")
+                        .arg("--dangerously-bypass-approvals-and-sandbox")
+                        .arg("--sandbox").arg("danger-full-access")
+                        .stdin(Stdio::piped())  // Pass prompt via stdin
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .current_dir(&worktree_path);
+                        c
+                    };
+
+                    for (key, value) in std::env::vars() {
+                        working_cmd.env(key, value);
+                    }
+
+                    cmd = Some(working_cmd);
+                    break;
+                }
+                Ok(status) => {
+                    println!("Command {} exists but failed with status: {}", command, status);
+                }
+                Err(e) => {
+                    println!("Error testing command {}: {:?}", command, e);
+                }
+            }
+        }
+    }
+
+    let Some(mut cmd) = cmd else {
+        return Err(format!(
+            "Codex CLI not found. Tried npx -y @openai/codex exec and direct codex commands. Ensure Codex is installed (npm install -g @openai/codex) or npx is available."
+        ));
+    };
+
+    // Create process record (reuse structure; messages will still parse as text if not JSON)
+    let process = AgentProcess {
+        id: process_id.clone(),
+        task_id: task_id.clone(),
+        status: "starting".to_string(),
+        start_time: get_timestamp(),
+        end_time: None,
+        messages: vec![AgentMessage {
+            id: generate_message_id(),
+            sender: "system".to_string(),
+            content: format!("Starting Codex agent for task: {}", task_id),
+            timestamp: get_timestamp(),
+            message_type: "text".to_string(),
+            metadata: Some(serde_json::json!({
+                "task_id": task_id,
+                "worktree_path": worktree_path
+            })),
+        }],
+        raw_output: Vec::new(),
+        session_id: None,
+        total_cost_usd: None,
+        num_turns: None,
+        worktree_path: worktree_path.clone(),
+    };
+
+    {
+        let processes = get_processes();
+        let mut map = processes.lock().unwrap();
+        map.insert(process_id.clone(), process.clone());
+
+        match app.emit("agent_process_status", serde_json::json!({
+            "process_id": process_id,
+            "task_id": task_id,
+            "status": "starting"
+        })) {
+            Ok(_) => println!("✅ Emitted agent_process_status event: {} starting", process_id),
+            Err(e) => println!("⚠️ Failed to emit process status event: {:?}", e)
+        };
+    }
+
+    match cmd.spawn() {
+        Ok(mut child) => {
+            println!("Codex process spawned successfully with PID: {:?}", child.id());
+
+            // Write the prompt to stdin and close it
+            if let Some(stdin) = child.stdin.take() {
+                use std::io::Write;
+                let mut stdin_writer = stdin;
+                if let Err(e) = stdin_writer.write_all(initial_message.as_bytes()) {
+                    println!("Failed to write prompt to Codex stdin: {}", e);
+                }
+                if let Err(e) = stdin_writer.write_all(b"\n") {
+                    println!("Failed to write newline to Codex stdin: {}", e);
+                }
+                // stdin_writer is dropped here, closing the pipe
+            }
+
+            let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+            let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+
+            {
+                let child_processes = get_child_processes();
+                let mut map = child_processes.lock().unwrap();
+                map.insert(process_id.clone(), child);
+            }
+
+            {
+                let processes = get_processes();
+                let mut map = processes.lock().unwrap();
+                if let Some(proc) = map.get_mut(&process_id) {
+                    proc.status = "running".to_string();
+                    match app.emit("agent_process_status", serde_json::json!({
+                        "process_id": process_id,
+                        "task_id": proc.task_id,
+                        "status": "running"
+                    })) {
+                        Ok(_) => println!("✅ Emitted agent_process_status event: running"),
+                        Err(e) => println!("⚠️ Failed to emit process status event: {:?}", e)
+                    };
+                }
+            }
+
+            // stdout reader (handle possible multi-line JSON)
+            let process_id_stdout = process_id.clone();
+            let processes_stdout = get_processes().clone();
+            let app_handle_stdout = app.clone();
+            thread::spawn(move || {
+                let reader = BufReader::new(stdout);
+                let mut buf = String::new();
+                for line in reader.lines() {
+                    if let Ok(line_content) = line {
+                        println!("Codex stdout: {}", line_content);
+                        let trimmed = line_content.trim();
+                        // append to buffer to allow multi-line JSON
+                        if !trimmed.is_empty() {
+                            if !buf.is_empty() { buf.push('\n'); }
+                            buf.push_str(trimmed);
+                        }
+
+                        // Store raw output
+                        {
+                            let mut map = processes_stdout.lock().unwrap();
+                            if let Some(proc) = map.get_mut(&process_id_stdout) {
+                                proc.raw_output.push(line_content.clone());
+                            }
+                        }
+
+                        // Try to parse Codex JSONL; if fails, try accumulated buffer; ignore plain text for Codex
+                        let parsed = parse_codex_output(trimmed)
+                            .or_else(|| if !buf.is_empty() { parse_codex_output(&buf) } else { None });
+
+                        let message = if let Some(msg) = parsed {
+                            // if parsed successfully, clear buffer
+                            buf.clear();
+                            msg
+                        } else {
+                            // empty line, skip
+                            continue;
+                        };
+
+                        {
+                            let mut map = processes_stdout.lock().unwrap();
+                            if let Some(proc) = map.get_mut(&process_id_stdout) {
+                                proc.messages.push(message.clone());
+                            }
+                        }
+                        let _ = app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                            "process_id": process_id_stdout,
+                            "messages": get_process_messages(&process_id_stdout)
+                        }));
+                    }
+                }
+            });
+
+            // stderr reader
+            let process_id_stderr = process_id.clone();
+            let processes_stderr = get_processes().clone();
+            thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line_content) = line {
+                        println!("Codex stderr: {}", line_content);
+                        let error_message = AgentMessage {
+                            id: generate_message_id(),
+                            sender: "system".to_string(),
+                            content: line_content,
+                            timestamp: get_timestamp(),
+                            message_type: "error".to_string(),
+                            metadata: None,
+                        };
+                        let mut map = processes_stderr.lock().unwrap();
+                        if let Some(proc) = map.get_mut(&process_id_stderr) {
+                            proc.messages.push(error_message);
+                        }
+                    }
+                }
+            });
+
+            // monitor completion
+            let process_id_monitor = process_id.clone();
+            let processes_monitor = get_processes().clone();
+            let child_processes_monitor = get_child_processes().clone();
+            let app_handle_monitor = app.clone();
+            thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                let mut should_wait = true;
+                while should_wait {
+                    {
+                        let mut child_map = child_processes_monitor.lock().unwrap();
+                        if let Some(child) = child_map.get_mut(&process_id_monitor) {
+                            match child.try_wait() {
+                                Ok(Some(status)) => {
+                                    println!("Codex process {} finished with status: {}", process_id_monitor, status);
+                                    should_wait = false;
+                                    let mut proc_map = processes_monitor.lock().unwrap();
+                                    if let Some(proc) = proc_map.get_mut(&process_id_monitor) {
+                                        if proc.status == "running" {
+                                            proc.status = if status.success() { "completed".to_string() } else { "failed".to_string() };
+                                            proc.end_time = Some(get_timestamp());
+                                        }
+                                    }
+                                    let _ = app_handle_monitor.emit("agent_process_status", serde_json::json!({
+                                        "process_id": process_id_monitor,
+                                        "status": if status.success() { "completed" } else { "failed" }
+                                    }));
+                                    child_map.remove(&process_id_monitor);
+                                }
+                                Ok(None) => {
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                }
+                                Err(e) => {
+                                    println!("Error checking process status: {}", e);
+                                    should_wait = false;
+                                }
+                            }
+                        } else {
+                            should_wait = false;
+                        }
+                    }
+                }
+            });
+
+            Ok(process_id)
+        }
+        Err(e) => {
+            println!("Failed to spawn Codex process: {:?}", e);
+            let processes = get_processes();
+            let mut map = processes.lock().unwrap();
+            if let Some(proc) = map.get_mut(&process_id) {
+                proc.status = "failed".to_string();
+                proc.end_time = Some(get_timestamp());
+            }
+            Err(format!("Failed to spawn Codex process: {}", e))
         }
     }
 }
