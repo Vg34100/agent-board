@@ -1,20 +1,10 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(cargo check:*)",
-      "WebFetch(domain:book.leptos.dev)",
-      "Bash(cargo tauri:*)",
-      "Bash(git checkout:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git branch:*)",
-      "WebSearch",
-      "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:v2.tauri.app)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:docs.rs)"
-    ],
-    "deny": [],
-    "ask": []
-  }
+  "allowedTools": [
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "Bash"
+  ],
+  "permissionMode": "acceptEdits"
 }

@@ -315,7 +315,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                     >
                                                         <div class="task-content">
                                                             <h4>{task.title.clone()}</h4>
-                                                            <p>{task.description.clone()}</p>
+                                                            <p class="task-description">{task.description.clone()}</p>
                                                         </div>
                                                         <div class="task-menu">
                                                             {
