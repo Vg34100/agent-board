@@ -679,7 +679,25 @@ pub fn TaskSidebar(
                                                                                                         <span class="time">{msg.timestamp.clone()}</span>
                                                                                                     </div>
                                                                                                     <div class="message-content">
-                                                                                                        <div>{msg.content}</div>
+                                                                                                        {if msg.message_type == "file_diff" {
+                                                                                                            // Clone content and split into header and diff body
+                                                                                                            let content_clone = msg.content.clone();
+                                                                                                            let content_parts: Vec<&str> = content_clone.split("\n\n").collect();
+                                                                                                            if content_parts.len() >= 2 {
+                                                                                                                let header = content_parts[0].to_string();
+                                                                                                                let diff_body = content_parts[1..].join("\n\n");
+                                                                                                                view! {
+                                                                                                                    <div class="diff-message">
+                                                                                                                        <div class="diff-header">{header}</div>
+                                                                                                                        <pre class="diff-content">{diff_body}</pre>
+                                                                                                                    </div>
+                                                                                                                }.into_any()
+                                                                                                            } else {
+                                                                                                                view! { <div>{msg.content.clone()}</div> }.into_any()
+                                                                                                            }
+                                                                                                        } else {
+                                                                                                            view! { <div>{msg.content.clone()}</div> }.into_any()
+                                                                                                        }}
                                                                                                     </div>
                                                                                                 </div>
                                                                                             }.into_any());
@@ -829,7 +847,25 @@ pub fn TaskSidebar(
                                                                                                                 <span class="time">{msg.timestamp.clone()}</span>
                                                                                                             </div>
                                                                                                             <div class="message-content">
-                                                                                                                <div>{msg.content}</div>
+                                                                                                                {if msg.message_type == "file_diff" {
+                                                                                                                    // Clone content and split into header and diff body
+                                                                                                                    let content_clone = msg.content.clone();
+                                                                                                                    let content_parts: Vec<&str> = content_clone.split("\n\n").collect();
+                                                                                                                    if content_parts.len() >= 2 {
+                                                                                                                        let header = content_parts[0].to_string();
+                                                                                                                        let diff_body = content_parts[1..].join("\n\n");
+                                                                                                                        view! {
+                                                                                                                            <div class="diff-message">
+                                                                                                                                <div class="diff-header">{header}</div>
+                                                                                                                                <pre class="diff-content">{diff_body}</pre>
+                                                                                                                            </div>
+                                                                                                                        }.into_any()
+                                                                                                                    } else {
+                                                                                                                        view! { <div>{msg.content.clone()}</div> }.into_any()
+                                                                                                                    }
+                                                                                                                } else {
+                                                                                                                    view! { <div>{msg.content.clone()}</div> }.into_any()
+                                                                                                                }}
                                                                                                             </div>
                                                                                                         </div>
                                                                                                     }.into_any());

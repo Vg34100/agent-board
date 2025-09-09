@@ -324,19 +324,14 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                         }
                     }
                     
-                    // Create the diff display content with proper HTML structure
-                    let diff_content = format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions);
-                    
-                    // Store diff lines in metadata for frontend rendering
-                    let mut diff_metadata = json.clone();
-                    if let Some(metadata_obj) = diff_metadata.as_object_mut() {
-                        metadata_obj.insert("diff_lines".to_string(), serde_json::Value::Array(
-                            diff_lines.into_iter().map(|line| serde_json::Value::String(line)).collect()
-                        ));
-                        metadata_obj.insert("file_name".to_string(), serde_json::Value::String(file_name.to_string()));
-                        metadata_obj.insert("additions".to_string(), serde_json::Value::Number(serde_json::Number::from(additions)));
-                        metadata_obj.insert("deletions".to_string(), serde_json::Value::Number(serde_json::Number::from(deletions)));
-                    }
+                    // Create the diff display content with actual diff lines
+                    let diff_content = if !diff_lines.is_empty() {
+                        let header = format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions);
+                        let diff_body = diff_lines.join("\n");
+                        format!("{}\n\n{}", header, diff_body)
+                    } else {
+                        format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions)
+                    };
                     
                     Some(AgentMessage {
                         id: generate_message_id(),
@@ -344,7 +339,7 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                         content: diff_content,
                         timestamp: get_timestamp(),
                         message_type: "file_diff".to_string(),
-                        metadata: Some(diff_metadata),
+                        metadata: Some(json.clone()),
                     })
                 }
                 _ => {
