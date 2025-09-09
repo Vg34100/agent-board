@@ -455,12 +455,17 @@ async fn kill_agent_process(process_id: String) -> Result<String, String> {
     Ok("Process killed successfully".to_string())
 }
 
+#[tauri::command]
+fn is_dev_mode() -> bool {
+    cfg!(debug_assertions)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_agent_processes, save_agent_processes])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_agent_processes, save_agent_processes, is_dev_mode])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

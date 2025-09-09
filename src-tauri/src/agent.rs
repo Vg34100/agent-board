@@ -1334,12 +1334,19 @@ pub fn spawn_codex_process(
                                     let mut map = processes_stdout.lock().unwrap();
                                     if let Some(proc) = map.get_mut(&process_id_stdout) {
                                         proc.messages.push(message.clone());
+                                        println!("Codex message stored. Total messages: {}", proc.messages.len());
+                                        
+                                        // Emit Tauri event for real-time updates (fixed to match Claude pattern)
+                                        match app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                            "process_id": process_id_stdout,
+                                            "task_id": proc.task_id,
+                                            "message": message
+                                        })) {
+                                            Ok(_) => println!("✅ Emitted Codex agent_message_update event for process {}", process_id_stdout),
+                                            Err(e) => println!("❌ Failed to emit Codex event: {:?}", e)
+                                        };
                                     }
                                 }
-                                let _ = app_handle_stdout.emit("agent_message_update", serde_json::json!({
-                                    "process_id": process_id_stdout,
-                                    "messages": get_process_messages(&process_id_stdout)
-                                }));
                             }
                         }
                         
@@ -1351,12 +1358,19 @@ pub fn spawn_codex_process(
                                     let mut map = processes_stdout.lock().unwrap();
                                     if let Some(proc) = map.get_mut(&process_id_stdout) {
                                         proc.messages.push(message.clone());
+                                        println!("Codex message stored from buffer. Total messages: {}", proc.messages.len());
+                                        
+                                        // Emit Tauri event for real-time updates (fixed to match Claude pattern)
+                                        match app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                            "process_id": process_id_stdout,
+                                            "task_id": proc.task_id,
+                                            "message": message
+                                        })) {
+                                            Ok(_) => println!("✅ Emitted Codex agent_message_update event from buffer for process {}", process_id_stdout),
+                                            Err(e) => println!("❌ Failed to emit Codex buffer event: {:?}", e)
+                                        };
                                     }
                                 }
-                                let _ = app_handle_stdout.emit("agent_message_update", serde_json::json!({
-                                    "process_id": process_id_stdout,
-                                    "messages": get_process_messages(&process_id_stdout)
-                                }));
                             }
                         }
                     }
