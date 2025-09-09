@@ -7,6 +7,9 @@ use std::io::{BufRead, BufReader};
 use std::thread;
 use tauri::Emitter;
 
+// Set to true to see all verbose debug messages, false for production filtering
+const AGENT_DEBUG: bool = false;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
     pub id: String,
@@ -74,6 +77,11 @@ fn get_timestamp() -> String {
         .as_secs();
     // Simple timestamp format - can be improved with chrono if needed
     format!("{}", now)
+}
+
+/// Checks if agent debug mode is enabled
+fn is_debug_mode() -> bool {
+    AGENT_DEBUG
 }
 
 /// Splits a line that may contain multiple JSON objects
@@ -210,14 +218,31 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                     let output_tokens = msg.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
                     let total_tokens = msg.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
                     
-                    Some(AgentMessage {
-                        id: generate_message_id(),
-                        sender: "system".to_string(),
-                        content: format!("Token usage: {} input, {} output, {} total", input_tokens, output_tokens, total_tokens),
-                        timestamp: get_timestamp(),
-                        message_type: "token_count".to_string(),
-                        metadata: Some(json),
-                    })
+                    // Filter out zero-value token counts (just noise)
+                    if input_tokens == 0 && output_tokens == 0 && total_tokens == 0 {
+                        if is_debug_mode() {
+                            Some(AgentMessage {
+                                id: generate_message_id(),
+                                sender: "system".to_string(),
+                                content: "[DEBUG] Token usage: 0 input, 0 output, 0 total".to_string(),
+                                timestamp: get_timestamp(),
+                                message_type: "debug_tokens".to_string(),
+                                metadata: Some(json),
+                            })
+                        } else {
+                            None // Filter out zero token counts in production
+                        }
+                    } else {
+                        // Show meaningful token counts
+                        Some(AgentMessage {
+                            id: generate_message_id(),
+                            sender: "system".to_string(),
+                            content: format!("💰 Token usage: {} input, {} output, {} total", input_tokens, output_tokens, total_tokens),
+                            timestamp: get_timestamp(),
+                            message_type: "token_count".to_string(),
+                            metadata: Some(json),
+                        })
+                    }
                 }
                 "tool_use" => {
                     let tool_name = msg.get("tool").and_then(|v| v.as_str()).unwrap_or("unknown");
@@ -342,16 +367,107 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                         metadata: Some(json.clone()),
                     })
                 }
-                _ => {
-                    // Handle unknown event types
+                // Filter out noisy exec_command events
+                "exec_command_output_delta" => {
+                    // These are just base64 chunks - completely useless for UI
+                    // Only show in debug mode for troubleshooting
+                    if is_debug_mode() {
+                        Some(AgentMessage {
+                            id: generate_message_id(),
+                            sender: "system".to_string(),
+                            content: format!("[DEBUG] Command output chunk (ID: {})", event_id),
+                            timestamp: get_timestamp(),
+                            message_type: "debug_chunk".to_string(),
+                            metadata: Some(json),
+                        })
+                    } else {
+                        None // Filter out completely in production
+                    }
+                }
+                "exec_command_begin" => {
+                    // Show command start with actual command info
+                    let command = json.get("msg")
+                        .and_then(|m| m.get("command"))
+                        .and_then(|c| c.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" "))
+                        .unwrap_or_else(|| "unknown command".to_string());
+                    
+                    let call_id = json.get("msg")
+                        .and_then(|m| m.get("call_id"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("unknown");
+                    
                     Some(AgentMessage {
                         id: generate_message_id(),
-                        sender: "system".to_string(),
-                        content: format!("Codex event: {} (ID: {})", msg_type, event_id),
+                        sender: "agent".to_string(),
+                        content: format!("🔧 Executing: {}", command),
                         timestamp: get_timestamp(),
-                        message_type: msg_type.to_string(),
-                        metadata: Some(json),
+                        message_type: "command_start".to_string(),
+                        metadata: Some(serde_json::json!({
+                            "call_id": call_id,
+                            "command": command,
+                            "original": json
+                        })),
                     })
+                }
+                "exec_command_end" => {
+                    // Show command completion with status
+                    let call_id = json.get("msg")
+                        .and_then(|m| m.get("call_id"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("unknown");
+                    
+                    let exit_code = json.get("msg")
+                        .and_then(|m| m.get("exit_code"))
+                        .and_then(|c| c.as_i64())
+                        .unwrap_or(-1);
+                    
+                    let status_icon = if exit_code == 0 { "✅" } else { "❌" };
+                    let status_text = if exit_code == 0 { "completed" } else { "failed" };
+                    
+                    Some(AgentMessage {
+                        id: generate_message_id(),
+                        sender: "agent".to_string(),
+                        content: format!("{} Command {} (exit code: {})", status_icon, status_text, exit_code),
+                        timestamp: get_timestamp(),
+                        message_type: "command_end".to_string(),
+                        metadata: Some(serde_json::json!({
+                            "call_id": call_id,
+                            "exit_code": exit_code,
+                            "original": json
+                        })),
+                    })
+                }
+                // Add other commonly noisy events to blacklist
+                "exec_command_output" | "exec_command_stderr" => {
+                    // These tend to be verbose - only show in debug mode
+                    if is_debug_mode() {
+                        Some(AgentMessage {
+                            id: generate_message_id(),
+                            sender: "system".to_string(),
+                            content: format!("[DEBUG] Command {}: {}", msg_type, event_id),
+                            timestamp: get_timestamp(),
+                            message_type: "debug_output".to_string(),
+                            metadata: Some(json),
+                        })
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    // Handle truly unknown event types - only show in debug mode or if important looking
+                    if is_debug_mode() || msg_type.contains("error") || msg_type.contains("fail") {
+                        Some(AgentMessage {
+                            id: generate_message_id(),
+                            sender: "system".to_string(),
+                            content: format!("Codex event: {} (ID: {})", msg_type, event_id),
+                            timestamp: get_timestamp(),
+                            message_type: msg_type.to_string(),
+                            metadata: Some(json),
+                        })
+                    } else {
+                        None // Filter out unknown events in production
+                    }
                 }
             }
         } else { 
