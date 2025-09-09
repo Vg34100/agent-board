@@ -679,7 +679,7 @@ pub fn TaskSidebar(
                                                                                                         <span class="time">{msg.timestamp.clone()}</span>
                                                                                                     </div>
                                                                                                     <div class="message-content">
-                                                                                                        {msg.content}
+                                                                                                        <div>{msg.content}</div>
                                                                                                     </div>
                                                                                                 </div>
                                                                                             }.into_any());
@@ -752,15 +752,10 @@ pub fn TaskSidebar(
                                                                     }.into_any()
                                                                 },
                                                                 "completed" => {
-                                                                    view! {
-                                                                        <div class="agent-completed">
-                                                                            <div class="completion-indicator">
-                                                                                <span class="complete-icon">"✅"</span>
-                                                                                <p>"Agent process completed successfully"</p>
-                                                                            </div>
-                                                                            {if has_messages {
-                                                                                view! {
-                                                                                    <div class="message-list">
+                                                                    // Use same structure as running - no extra completion indicator
+                                                                    if has_messages {
+                                                                        view! {
+                                                                            <div class="message-list">
                                                                                         {
                                                                                             // Group agent_reasoning messages together for completed status too
                                                                                             let mut processed_messages = Vec::new();
@@ -834,7 +829,7 @@ pub fn TaskSidebar(
                                                                                                                 <span class="time">{msg.timestamp.clone()}</span>
                                                                                                             </div>
                                                                                                             <div class="message-content">
-                                                                                                                {msg.content}
+                                                                                                                <div>{msg.content}</div>
                                                                                                             </div>
                                                                                                         </div>
                                                                                                     }.into_any());
@@ -882,13 +877,13 @@ pub fn TaskSidebar(
                                                                                         }
                                                                                     </div>
                                                                                 }.into_any()
-                                                                            } else {
-                                                                                view! {
-                                                                                    <p class="hint">"No messages captured during execution"</p>
-                                                                                }.into_any()
-                                                                            }}
-                                                                        </div>
-                                                                    }.into_any()
+                                                                    } else {
+                                                                        view! {
+                                                                            <div class="agent-completed-no-messages">
+                                                                                <p class="hint">"Task completed, but no messages were captured during execution"</p>
+                                                                            </div>
+                                                                        }.into_any()
+                                                                    }
                                                                 },
                                                                 _ => {
                                                                     view! {
