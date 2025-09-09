@@ -108,18 +108,53 @@ pub fn TaskSidebar(
         }
     };
 
-    // Load all processes
+    // Load all processes (from memory and persisted store)
     let load_all_processes = {
         let set_all_processes = set_all_processes.clone();
         move || {
             spawn_local(async move {
+                // Load current processes from memory
+                let mut current_processes = Vec::new();
                 match invoke("get_process_list", serde_wasm_bindgen::to_value(&serde_json::json!({})).unwrap()).await {
                     js_result if !js_result.is_undefined() => {
                         if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
-                            set_all_processes.set(processes);
+                            current_processes = processes;
                         }
                     }
                     _ => {}
+                }
+                
+                // Also load persisted processes
+                match invoke("load_agent_processes", serde_wasm_bindgen::to_value(&serde_json::json!({})).unwrap()).await {
+                    js_result if !js_result.is_undefined() => {
+                        if let Ok(persisted_processes) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
+                            // Merge persisted processes with current ones (current processes take priority)
+                            let mut merged_processes = current_processes.clone();
+                            
+                            for persisted in persisted_processes {
+                                let persisted_id = persisted.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                                // Only add persisted process if it's not already in current processes
+                                if !current_processes.iter().any(|current| {
+                                    current.get("id").and_then(|v| v.as_str()).unwrap_or("") == persisted_id
+                                }) {
+                                    merged_processes.push(persisted);
+                                }
+                            }
+                            
+                            set_all_processes.set(merged_processes.clone());
+                            
+                            // Save the merged list back to store for persistence
+                            let save_args = serde_json::json!({ "processes": merged_processes });
+                            if let Ok(js_value) = serde_wasm_bindgen::to_value(&save_args) {
+                                let _ = invoke("save_agent_processes", js_value).await;
+                            }
+                        } else {
+                            set_all_processes.set(current_processes);
+                        }
+                    }
+                    _ => {
+                        set_all_processes.set(current_processes);
+                    }
                 }
             });
         }
@@ -261,6 +296,15 @@ pub fn TaskSidebar(
                                     load_status(process_id.to_string());
                                     // CRITICAL: Also refresh process list to trigger UI re-render
                                     load_all_processes_for_status();
+                                    
+                                    // Save processes to store for persistence
+                                    let processes_for_save = all_processes.get_untracked();
+                                    let save_args = serde_json::json!({ "processes": processes_for_save });
+                                    let _ = wasm_bindgen_futures::spawn_local(async move {
+                                        if let Ok(jsv) = serde_wasm_bindgen::to_value(&save_args) {
+                                            let _ = invoke("save_agent_processes", jsv).await;
+                                        }
+                                    });
                                 }
                             }
                         }

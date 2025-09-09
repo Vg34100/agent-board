@@ -76,6 +76,53 @@ fn get_timestamp() -> String {
     format!("{}", now)
 }
 
+/// Splits a line that may contain multiple JSON objects
+fn split_json_objects(line: &str) -> Vec<String> {
+    let mut objects = Vec::new();
+    let mut current = String::new();
+    let mut brace_count = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+    
+    for ch in line.chars() {
+        if escape_next {
+            current.push(ch);
+            escape_next = false;
+            continue;
+        }
+        
+        match ch {
+            '\\' if in_string => {
+                escape_next = true;
+                current.push(ch);
+            }
+            '"' => {
+                in_string = !in_string;
+                current.push(ch);
+            }
+            '{' if !in_string => {
+                brace_count += 1;
+                current.push(ch);
+            }
+            '}' if !in_string => {
+                current.push(ch);
+                brace_count -= 1;
+                if brace_count == 0 && !current.trim().is_empty() {
+                    objects.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+    
+    // If there's remaining content that doesn't form a complete JSON object, discard it
+    // This handles malformed or incomplete JSON
+    objects
+}
+
 /// Parses Codex CLI JSONL events into AgentMessage based on actual Codex output format
 fn parse_codex_output(line: &str) -> Option<AgentMessage> {
     let trimmed = line.trim();
@@ -247,10 +294,11 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                 "turn_diff" => {
                     let unified_diff = msg.get("unified_diff").and_then(|v| v.as_str()).unwrap_or("");
                     
-                    // Parse the diff to extract file information
+                    // Parse the diff to extract file information and changes
                     let mut file_name = "unknown file";
                     let mut additions = 0;
                     let mut deletions = 0;
+                    let mut diff_lines = Vec::new();
                     
                     for line in unified_diff.lines() {
                         if line.starts_with("+++") {
@@ -263,15 +311,31 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                             }
                         } else if line.starts_with('+') && !line.starts_with("+++") {
                             additions += 1;
+                            diff_lines.push(format!("+ {}", &line[1..])); // Remove the + and add it back with formatting
                         } else if line.starts_with('-') && !line.starts_with("---") {
                             deletions += 1;
+                            diff_lines.push(format!("- {}", &line[1..])); // Remove the - and add it back with formatting
+                        } else if line.starts_with(' ') {
+                            // Context lines
+                            diff_lines.push(format!("  {}", &line[1..]));
+                        } else if line.starts_with("@@") {
+                            // Line number info
+                            diff_lines.push(line.to_string());
                         }
                     }
+                    
+                    // Create the diff display content
+                    let diff_content = if !diff_lines.is_empty() {
+                        format!("📄 Modified {} (+{} -{} lines)\n\n```diff\n{}\n```", 
+                            file_name, additions, deletions, diff_lines.join("\n"))
+                    } else {
+                        format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions)
+                    };
                     
                     Some(AgentMessage {
                         id: generate_message_id(),
                         sender: "agent".to_string(),
-                        content: format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions),
+                        content: diff_content,
                         timestamp: get_timestamp(),
                         message_type: "file_diff".to_string(),
                         metadata: Some(json), // Store the full diff in metadata for potential expansion
@@ -1112,29 +1176,40 @@ pub fn spawn_codex_process(
                             }
                         }
 
-                        // Try to parse Codex JSONL; if fails, try accumulated buffer; ignore plain text for Codex
-                        let parsed = parse_codex_output(trimmed)
-                            .or_else(|| if !buf.is_empty() { parse_codex_output(&buf) } else { None });
-
-                        let message = if let Some(msg) = parsed {
-                            // if parsed successfully, clear buffer
-                            buf.clear();
-                            msg
-                        } else {
-                            // empty line, skip
-                            continue;
-                        };
-
-                        {
-                            let mut map = processes_stdout.lock().unwrap();
-                            if let Some(proc) = map.get_mut(&process_id_stdout) {
-                                proc.messages.push(message.clone());
+                        // Handle multiple JSON objects on the same line
+                        let json_objects = split_json_objects(trimmed);
+                        
+                        for json_str in json_objects {
+                            if let Some(message) = parse_codex_output(&json_str) {
+                                {
+                                    let mut map = processes_stdout.lock().unwrap();
+                                    if let Some(proc) = map.get_mut(&process_id_stdout) {
+                                        proc.messages.push(message.clone());
+                                    }
+                                }
+                                let _ = app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                    "process_id": process_id_stdout,
+                                    "messages": get_process_messages(&process_id_stdout)
+                                }));
                             }
                         }
-                        let _ = app_handle_stdout.emit("agent_message_update", serde_json::json!({
-                            "process_id": process_id_stdout,
-                            "messages": get_process_messages(&process_id_stdout)
-                        }));
+                        
+                        // If no JSON objects found, try accumulated buffer
+                        if json_objects.is_empty() && !buf.is_empty() {
+                            if let Some(message) = parse_codex_output(&buf) {
+                                buf.clear();
+                                {
+                                    let mut map = processes_stdout.lock().unwrap();
+                                    if let Some(proc) = map.get_mut(&process_id_stdout) {
+                                        proc.messages.push(message.clone());
+                                    }
+                                }
+                                let _ = app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                    "process_id": process_id_stdout,
+                                    "messages": get_process_messages(&process_id_stdout)
+                                }));
+                            }
+                        }
                     }
                 }
             });

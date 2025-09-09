@@ -6,6 +6,19 @@ use serde::{Deserialize, Serialize};
 mod git;
 mod agent;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+struct CodexSettings {
+    command: Option<String>,
+    args: Option<Vec<String>>, // extra args before prompt
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+struct AgentSettings {
+    codex: Option<CodexSettings>,
+}
+
+use tauri_plugin_store::StoreExt;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirectoryItem {
     pub name: String,
@@ -322,10 +335,88 @@ async fn start_agent_process(
     task_title: String,
     task_description: String,
     worktree_path: String,
+    #[allow(non_snake_case)] profile: Option<String>,
 ) -> Result<String, String> {
     println!("Tauri command: start_agent_process called for task '{}' in worktree '{}'", task_id, worktree_path);
     let initial_message = format!("{}: {}", task_title, task_description);
-    agent::spawn_claude_process(app, task_id, initial_message, worktree_path, None)
+    println!("start_agent_process: received profile = {:?}", profile);
+    let which = profile
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "claude".to_string())
+        .to_lowercase();
+    println!("start_agent_process: launching agent kind = {}", which);
+    match which.as_str() {
+        "codex" | "chat-codex" | "chatgpt-codex" => {
+            agent::spawn_codex_process(app, task_id, initial_message, worktree_path, None)
+        }
+        _ => agent::spawn_claude_process(app, task_id, initial_message, worktree_path, None)
+    }
+}
+
+// Global agent settings: load and save
+#[tauri::command]
+async fn load_agent_settings(app: tauri::AppHandle) -> Result<AgentSettings, String> {
+    let store = app.store("agent_settings.json").map_err(|e| e.to_string())?;
+    if let Some(val) = store.get("settings") {
+        serde_json::from_value::<AgentSettings>(val.clone()).map_err(|e| e.to_string())
+    } else {
+        Ok(AgentSettings::default())
+    }
+}
+
+#[tauri::command]
+async fn save_agent_settings(app: tauri::AppHandle, settings: AgentSettings) -> Result<String, String> {
+    let store = app.store("agent_settings.json").map_err(|e| e.to_string())?;
+    let val = serde_json::to_value(&settings).map_err(|e| e.to_string())?;
+    store.set("settings", val);
+    store.save().map_err(|e| e.to_string())?;
+    Ok("Agent settings saved".to_string())
+}
+
+// Persisted agent messages per task
+#[tauri::command]
+async fn load_task_agent_messages(app: tauri::AppHandle, task_id: String) -> Result<Vec<agent::AgentMessage>, String> {
+    let file = format!("agent_messages_{}.json", task_id);
+    let store = app.store(&file).map_err(|e| e.to_string())?;
+    if let Some(val) = store.get("messages") {
+        serde_json::from_value::<Vec<agent::AgentMessage>>(val.clone()).map_err(|e| e.to_string())
+    } else {
+        Ok(vec![])
+    }
+}
+
+#[tauri::command]
+async fn save_task_agent_messages(app: tauri::AppHandle, task_id: String, messages: Vec<agent::AgentMessage>) -> Result<String, String> {
+    let file = format!("agent_messages_{}.json", task_id);
+    let store = app.store(&file).map_err(|e| e.to_string())?;
+    let val = serde_json::to_value(&messages).map_err(|e| e.to_string())?;
+    store.set("messages", val);
+    store.save().map_err(|e| e.to_string())?;
+    Ok("Agent messages saved".to_string())
+}
+
+// Persisted agent processes list
+#[tauri::command]
+async fn load_agent_processes(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    let store = app.store("agent_processes.json").map_err(|e| e.to_string())?;
+    if let Some(val) = store.get("processes") {
+        if let serde_json::Value::Array(processes_array) = val {
+            Ok(processes_array)
+        } else {
+            Ok(vec![])
+        }
+    } else {
+        Ok(vec![])
+    }
+}
+
+#[tauri::command]
+async fn save_agent_processes(app: tauri::AppHandle, processes: Vec<serde_json::Value>) -> Result<String, String> {
+    let store = app.store("agent_processes.json").map_err(|e| e.to_string())?;
+    let val = serde_json::Value::Array(processes);
+    store.set("processes", val);
+    store.save().map_err(|e| e.to_string())?;
+    Ok("Agent processes saved".to_string())
 }
 
 #[tauri::command]
@@ -369,7 +460,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, get_process_list, get_process_details, get_agent_messages, kill_agent_process])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_agent_processes, save_agent_processes])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
