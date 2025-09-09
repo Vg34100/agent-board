@@ -86,19 +86,30 @@ pub fn TaskSidebar(
     // Load agent messages for current process with force refresh
     let load_agent_messages = {
         let set_agent_messages = set_agent_messages.clone();
+        let task_id_for_save = task.id.clone();
         move |process_id: String| {
             let set_agent_messages = set_agent_messages.clone();
+            let task_id_for_save = task_id_for_save.clone();
             spawn_local(async move {
                 let args = serde_json::json!({ "processId": process_id });
                 if let Ok(js_value) = to_value(&args) {
                     match invoke("get_agent_messages", js_value).await {
                         js_result if !js_result.is_undefined() => {
                             if let Ok(messages) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(js_result) {
-                                // Use update to ensure reactivity even if content is similar
+                                // Update reactive state
                                 set_agent_messages.update(|current| {
                                     current.clear();
-                                    current.extend(messages);
+                                    current.extend(messages.clone());
                                 });
+
+                                // Persist the freshly loaded messages for this task immediately
+                                let save_args = serde_json::json!({
+                                    "taskId": task_id_for_save,
+                                    "messages": messages,
+                                });
+                                if let Ok(save_js) = serde_wasm_bindgen::to_value(&save_args) {
+                                    let _ = invoke("save_task_agent_messages", save_js).await;
+                                }
                             }
                         }
                         _ => {}
@@ -254,18 +265,7 @@ pub fn TaskSidebar(
                                     set_id_msg.set(Some(process_id.to_string()));
                                     // Refresh messages for this process
                                     load_msg(process_id.to_string());
-                                    // Also persist current messages snapshot for this task
-                                    let task_id_copy = task_id_msg.to_string();
-                                    let messages_snapshot = agent_messages.get_untracked();
-                                    let save_args = serde_json::json!({
-                                        "taskId": task_id_copy,
-                                        "messages": messages_snapshot
-                                    });
-                                    let _ = wasm_bindgen_futures::spawn_local(async move {
-                                        if let Ok(jsv) = serde_wasm_bindgen::to_value(&save_args) {
-                                            let _ = invoke("save_task_agent_messages", jsv).await;
-                                        }
-                                    });
+                                    // Message persistence now handled inside load_agent_messages after refresh
                                 }
                             }
                         }
