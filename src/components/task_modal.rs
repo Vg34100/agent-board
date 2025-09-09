@@ -77,7 +77,7 @@ pub fn TaskModal(
                         <label>"DESCRIPTION"</label>
                         <textarea 
                             placeholder="Task description..."
-                            rows="4"
+                            rows="8"
                             on:input=move |ev| set_description.set(event_target_value(&ev))
                             prop:value=move || description.get()
                         ></textarea>
