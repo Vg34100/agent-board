@@ -328,7 +328,7 @@ fn parse_codex_output(line: &str) -> Option<AgentMessage> {
                     let diff_content = format!("📄 Modified {} (+{} -{} lines)", file_name, additions, deletions);
                     
                     // Store diff lines in metadata for frontend rendering
-                    let mut diff_metadata = json;
+                    let mut diff_metadata = json.clone();
                     if let Some(metadata_obj) = diff_metadata.as_object_mut() {
                         metadata_obj.insert("diff_lines".to_string(), serde_json::Value::Array(
                             diff_lines.into_iter().map(|line| serde_json::Value::String(line)).collect()
