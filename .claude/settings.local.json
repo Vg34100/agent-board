@@ -6,5 +6,10 @@
     "MultiEdit",
     "Bash"
   ],
-  "permissionMode": "acceptEdits"
+  "permissionMode": "acceptEdits",
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)"
+    ]
+  }
 }

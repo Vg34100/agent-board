@@ -9,6 +9,38 @@ use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
 use std::rc::Rc;
 
+// Safe task serialization function with error handling
+fn serialize_tasks_safely(tasks: &[Task]) -> Vec<serde_json::Value> {
+    let json_tasks: Vec<serde_json::Value> = tasks.iter()
+        .filter_map(|t| {
+            match serde_json::to_value(t) {
+                Ok(value) => {
+                    // Check if the serialization actually produced a valid object
+                    if value.is_object() && !value.as_object().unwrap().is_empty() {
+                        Some(value)
+                    } else {
+                        web_sys::console::error_1(&format!("Task serialization produced empty object for task ID: {}", t.id).into());
+                        None
+                    }
+                }
+                Err(e) => {
+                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", t.id, e).into());
+                    None
+                }
+            }
+        })
+        .collect();
+    
+    // Verify no data loss
+    if json_tasks.len() != tasks.len() {
+        web_sys::console::error_1(&format!("DATA LOSS WARNING: Lost {} tasks during serialization!", tasks.len() - json_tasks.len()).into());
+    } else {
+        web_sys::console::log_1(&format!("Successfully serialized {} tasks", json_tasks.len()).into());
+    }
+    
+    json_tasks
+}
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
@@ -162,8 +194,32 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 let current_tasks = tasks.get_untracked();
                 // Convert tasks to JSON values for the backend
                 let json_tasks: Vec<serde_json::Value> = current_tasks.iter()
-                    .filter_map(|t| serde_json::to_value(t).ok())
+                    .filter_map(|t| {
+                        match serde_json::to_value(t) {
+                            Ok(value) => {
+                                // Check if the serialization actually produced a valid object
+                                if value.is_object() && !value.as_object().unwrap().is_empty() {
+                                    Some(value)
+                                } else {
+                                    web_sys::console::error_1(&format!("Task serialization produced empty object for task ID: {}", t.id).into());
+                                    None
+                                }
+                            }
+                            Err(e) => {
+                                web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", t.id, e).into());
+                                None
+                            }
+                        }
+                    })
                     .collect();
+                
+                web_sys::console::log_1(&format!("Attempting to save {} tasks out of {} original tasks", json_tasks.len(), current_tasks.len()).into());
+                
+                // Only save if we didn't lose any tasks during serialization
+                if json_tasks.len() != current_tasks.len() {
+                    web_sys::console::error_1(&format!("DATA LOSS WARNING: Lost {} tasks during serialization! Aborting save to prevent corruption.", current_tasks.len() - json_tasks.len()).into());
+                    return; // Don't save corrupted data
+                }
 
                 let save_args = serde_json::json!({
                     "projectId": project_id,
@@ -227,7 +283,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                                                             // Save updated projects
                                                             let projects_json: Vec<serde_json::Value> = projects.into_iter()
-                                                                .map(|project| serde_json::to_value(project).unwrap_or_default())
+                                                                .filter_map(|project| {
+                                                                    match serde_json::to_value(&project) {
+                                                                        Ok(value) => Some(value),
+                                                                        Err(e) => {
+                                                                            web_sys::console::error_1(&format!("Failed to serialize project ID {}: {}", project.id, e).into());
+                                                                            None
+                                                                        }
+                                                                    }
+                                                                })
                                                                 .collect();
 
                                                             let save_args = serde_json::json!({
@@ -385,7 +449,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                                                                                         // Save updated tasks to storage after deletion
                                                                                         let tasks_json: Vec<serde_json::Value> = tasks.iter()
-                                                                                            .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                                                                            .filter_map(|task| {
+                                            match serde_json::to_value(&task) {
+                                                Ok(value) => Some(value),
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", task.id, e).into());
+                                                    None
+                                                }
+                                            }
+                                        })
                                                                                             .collect();
 
                                                                                         let project_id_for_save = project_id_mobile_delete.clone();
@@ -471,7 +543,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                                                                                         // Save updated tasks to storage after deletion
                                                                                         let tasks_json: Vec<serde_json::Value> = tasks.iter()
-                                                                                            .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                                                                            .filter_map(|task| {
+                                            match serde_json::to_value(&task) {
+                                                Ok(value) => Some(value),
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", task.id, e).into());
+                                                    None
+                                                }
+                                            }
+                                        })
                                                                                             .collect();
 
                                                                                         let project_id_for_save = project_id_dropdown_delete.clone();
@@ -643,7 +723,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                                                                                             // Save updated tasks to storage
                                                                                             let tasks_json: Vec<serde_json::Value> = tasks_for_save.into_iter()
-                                                                                                .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                                                                                .filter_map(|task| {
+                                            match serde_json::to_value(&task) {
+                                                Ok(value) => Some(value),
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", task.id, e).into());
+                                                    None
+                                                }
+                                            }
+                                        })
                                                                                                 .collect();
 
                                                                                             spawn_local(async move {
@@ -730,7 +818,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                                                                                                 // Save updated tasks to storage
                                                                                                 let tasks_json: Vec<serde_json::Value> = tasks_for_save.into_iter()
-                                                                                                    .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                                                                                    .filter_map(|task| {
+                                            match serde_json::to_value(&task) {
+                                                Ok(value) => Some(value),
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", task.id, e).into());
+                                                    None
+                                                }
+                                            }
+                                        })
                                                                                                     .collect();
 
                                                                                                 let save_args = serde_json::json!({
@@ -782,7 +878,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                     let tasks_for_immediate_save = tasks.clone();
                                     spawn_local(async move {
                                         let tasks_json: Vec<serde_json::Value> = tasks_for_immediate_save.into_iter()
-                                            .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                            .filter_map(|task| {
+                                            match serde_json::to_value(&task) {
+                                                Ok(value) => Some(value),
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", task.id, e).into());
+                                                    None
+                                                }
+                                            }
+                                        })
                                             .collect();
 
                                         let save_args = serde_json::json!({
@@ -814,7 +918,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
                                     // Save updated tasks to storage after deletion
                                     let tasks_json: Vec<serde_json::Value> = tasks.iter()
-                                        .map(|task| serde_json::to_value(task).unwrap_or_default())
+                                        .filter_map(|task| {
+                                            match serde_json::to_value(&task) {
+                                                Ok(value) => Some(value),
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("Failed to serialize task ID {}: {}", task.id, e).into());
+                                                    None
+                                                }
+                                            }
+                                        })
                                         .collect();
 
                                     let project_id_for_save = project_id_for_delete.clone();

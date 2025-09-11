@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -50,7 +50,7 @@ pub struct Task {
     pub title: String,
     pub description: String,
     pub status: TaskStatus,
-    pub created_at: DateTime<Utc>,
+    pub created_at: String,
     pub worktree_path: Option<String>,
     #[serde(default = "default_agent_profile")]
     pub profile: AgentProfile,
@@ -65,7 +65,7 @@ impl Task {
             title,
             description,
             status: TaskStatus::ToDo,
-            created_at: Utc::now(),
+            created_at: Utc::now().to_rfc3339(),
             worktree_path: None,
             profile: default_agent_profile(),
         }
@@ -85,5 +85,10 @@ impl Task {
 
     pub fn set_worktree_path(&mut self, path: Option<String>) {
         self.worktree_path = path;
+    }
+    
+    // Debug function to test serialization
+    pub fn test_serialization(&self) -> Result<serde_json::Value, String> {
+        serde_json::to_value(self).map_err(|e| e.to_string())
     }
 }

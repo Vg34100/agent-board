@@ -29,10 +29,20 @@ pub fn TaskModal(
             title: title.get_untracked(),             // Get title without creating reactive dependency
             description: description.get_untracked(), // Get description without reactive dependency
             status: TaskStatus::ToDo,                 // New tasks always start in ToDo column
-            created_at: Utc::now(),                   // Timestamp for when task was created
+            created_at: Utc::now().to_rfc3339(),      // Timestamp for when task was created (as string)
             worktree_path: None,                      // No worktree initially
             profile: AgentProfile::ClaudeCode,        // Default to Claude Code
         };
+        
+        // DEBUG: Test task serialization before calling the callback
+        match task.test_serialization() {
+            Ok(json_value) => {
+                web_sys::console::log_1(&format!("✅ Task serialization SUCCESS: {:?}", json_value).into());
+            }
+            Err(e) => {
+                web_sys::console::error_1(&format!("❌ Task serialization FAILED: {}", e).into());
+            }
+        }
         
         // Call the parent's callback function to add the task to the kanban board
         on_create(task);

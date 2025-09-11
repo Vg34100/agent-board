@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.video.agent-board",
   "build": {
-    "beforeDevCommand": "trunk serve",
+    "beforeDevCommand": "trunk build && trunk serve",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "trunk build",
     "frontendDist": "../dist"

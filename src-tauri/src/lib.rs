@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod git;
 mod agent;
+mod web;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct CodexSettings {
@@ -18,6 +19,8 @@ struct AgentSettings {
 }
 
 use tauri_plugin_store::StoreExt;
+use tauri::Manager;
+use tauri::Emitter;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirectoryItem {
@@ -466,6 +469,67 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_agent_processes, save_agent_processes, is_dev_mode])
+        .setup(|app| {
+            // Bind to preferred fixed port, with fallback to a random high port if occupied
+            let listener = match std::net::TcpListener::bind(("0.0.0.0", 17872)) {
+                Ok(l) => l,
+                Err(_) => std::net::TcpListener::bind(("0.0.0.0", 0))?,
+            };
+            let port = listener.local_addr()?.port();
+
+            // Spawn the web server (serves the embedded dist and HTTP API)
+            web::spawn(listener, app.handle().clone());
+            println!("Embedded web server listening on 0.0.0.0:{}", port);
+
+            // Compute a LAN URL if available and expose it to the user
+            let lan_url = local_ip_address::local_ip()
+                .ok()
+                .map(|ip| format!("http://{}:{}", ip, port));
+
+            // Point the main window to the local server so desktop and web share the same UI
+            if let Some(win) = app.get_webview_window("main") {
+                if let Ok(url) = tauri::Url::parse(&format!("http://127.0.0.1:{port}")) {
+                    // Ignore navigate errors; window might not be ready yet in some environments
+                    let _ = win.navigate(url);
+                }
+                if let Some(ref u) = lan_url {
+                    let _ = win.set_title(&format!("agent-board — {}", u));
+                }
+            }
+
+            // Emit an event the frontend can listen to, if desired
+            let _ = app.emit("server_info", serde_json::json!({
+                "port": port,
+                "lan_url": lan_url,
+            }));
+
+            // Self-test: ping /health a few times and log the result to help diagnose connectivity
+            std::thread::spawn(move || {
+                use std::io::{Read, Write};
+                use std::net::TcpStream;
+                for i in 0..5 {
+                    match TcpStream::connect(("127.0.0.1", port)) {
+                        Ok(mut stream) => {
+                            let _ = stream.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+                            let mut buf = [0u8; 128];
+                            if let Ok(n) = stream.read(&mut buf) {
+                                let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                                println!("Self-test attempt {}: received {} bytes: {}", i+1, n, head.lines().next().unwrap_or(""));
+                                break;
+                            } else {
+                                println!("Self-test attempt {}: connected but no data", i+1);
+                            }
+                        }
+                        Err(e) => {
+                            println!("Self-test attempt {}: connect failed: {}", i+1, e);
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                    }
+                }
+            });
+
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
