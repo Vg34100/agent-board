@@ -8,6 +8,22 @@
     <link data-trunk rel="rust" data-wasm-opt="z" />
     <script>
       (function() {
+        // Suppress Trunk dev server WebSocket connection errors
+        const originalConsoleError = console.error;
+        console.error = function(...args) {
+          const message = args.join(' ');
+          // Suppress WebSocket connection errors from Trunk dev server
+          if (message.includes('WebSocket connection') && 
+              (message.includes('{{__trunk_address__}}') || message.includes('{{__trunk_ws_base__}}'))) {
+            return; // Silently ignore these development artifacts
+          }
+          // Suppress net::ERR_NAME_NOT_RESOLVED for Trunk WebSocket
+          if (message.includes('net::ERR_NAME_NOT_RESOLVED') && message.includes('trunk')) {
+            return;
+          }
+          originalConsoleError.apply(console, args);
+        };
+        
         // Provide a browser shim for Tauri's invoke when running outside Tauri.
         try {
           if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
@@ -108,64 +124,75 @@
                 argsString = JSON.stringify(normalizedArgs);
                 console.log('Args string:', argsString);
                 
-                // Check if we got empty objects when we shouldn't have
-                if (argsString.includes('[{}') && normalizedArgs.tasks && normalizedArgs.tasks.length > 0) {
-                  console.error('🔥 DETECTED EMPTY OBJECTS IN JSON! Attempting direct serialization...');
-                  console.log('Original tasks array:', normalizedArgs.tasks);
-                  console.log('First task properties:', Object.getOwnPropertyNames(normalizedArgs.tasks[0]));
-                  console.log('First task entries:', Object.entries(normalizedArgs.tasks[0]));
+                // WASM Map Serialization Fix: Check if JSON.stringify produced empty objects for non-empty arrays
+                if (argsString.includes('[{}')) {
+                  console.warn('🔍 Detected potential WASM Map serialization issue - scanning arrays...');
                   
-                  // Try to manually serialize the tasks array
-                  if (normalizedArgs.tasks) {
-                    const manualTasks = normalizedArgs.tasks.map(task => {
-                      console.log('Processing task:', task);
-                      const obj = {};
-                      
-                      // Check if it's a Map (which is what WASM returns!)
-                      if (task instanceof Map) {
-                        console.log('🎯 FOUND THE PROBLEM: Task is a Map! Converting to Object...');
-                        for (const [key, value] of task.entries()) {
-                          obj[key] = value;
-                          console.log(`Map entry: ${key} = ${value}`);
-                        }
-                      } else {
-                        // Try different ways to copy properties for regular objects
-                        try {
-                          // Method 1: for...in loop
-                          for (const key in task) {
-                            if (task.hasOwnProperty(key)) {
-                              obj[key] = task[key];
-                              console.log(`Copied ${key}: ${task[key]}`);
-                            }
-                          }
-                          
-                          // Method 2: Object.keys if for...in didn't work
-                          if (Object.keys(obj).length === 0) {
-                            Object.keys(task).forEach(key => {
-                              obj[key] = task[key];
-                              console.log(`Keys method - copied ${key}: ${task[key]}`);
-                            });
-                          }
-                          
-                          // Method 3: Object.getOwnPropertyNames as last resort
-                          if (Object.keys(obj).length === 0) {
-                            Object.getOwnPropertyNames(task).forEach(key => {
-                              obj[key] = task[key];
-                              console.log(`PropertyNames method - copied ${key}: ${task[key]}`);
-                            });
-                          }
-                        } catch (e) {
-                          console.error('Manual copy failed:', e);
-                        }
-                      }
-                      
-                      console.log('Final copied object:', obj);
-                      return obj;
-                    });
+                  // Helper function to convert WASM Map objects to regular JavaScript objects
+                  const convertMapToObject = (item, itemType) => {
+                    const obj = {};
                     
-                    const manualArgs = {...normalizedArgs, tasks: manualTasks};
-                    argsString = JSON.stringify(manualArgs);
-                    console.log('✅ Manual serialization result:', argsString);
+                    if (item instanceof Map) {
+                      // WASM objects are Maps - convert to regular object
+                      for (const [key, value] of item.entries()) {
+                        obj[key] = value;
+                      }
+                      console.log(`✅ Converted ${itemType} Map to object:`, Object.keys(obj));
+                      return obj;
+                    } else {
+                      // Try multiple methods to copy object properties
+                      try {
+                        // Method 1: for...in loop
+                        for (const key in item) {
+                          if (item.hasOwnProperty(key)) {
+                            obj[key] = item[key];
+                          }
+                        }
+                        
+                        // Method 2: Object.keys as fallback
+                        if (Object.keys(obj).length === 0) {
+                          Object.keys(item).forEach(key => {
+                            obj[key] = item[key];
+                          });
+                        }
+                        
+                        // Method 3: getOwnPropertyNames as last resort
+                        if (Object.keys(obj).length === 0) {
+                          Object.getOwnPropertyNames(item).forEach(key => {
+                            obj[key] = item[key];
+                          });
+                        }
+                      } catch (e) {
+                        console.warn(`Failed to copy ${itemType} properties:`, e);
+                      }
+                    }
+                    
+                    return obj;
+                  };
+                  
+                  let fixedArgs = {...normalizedArgs};
+                  let wasFixed = false;
+                  
+                  // Check common array types that might contain WASM Maps
+                  const arrayTypes = ['tasks', 'processes', 'projects', 'messages', 'settings'];
+                  
+                  arrayTypes.forEach(arrayType => {
+                    if (normalizedArgs[arrayType] && Array.isArray(normalizedArgs[arrayType]) && normalizedArgs[arrayType].length > 0) {
+                      // Check if this array has the empty object issue
+                      const testJson = JSON.stringify(normalizedArgs[arrayType]);
+                      if (testJson.includes('[{}') || testJson.includes(',{}')) {
+                        console.log(`🔧 Fixing ${arrayType} array serialization...`);
+                        fixedArgs[arrayType] = normalizedArgs[arrayType].map(item => 
+                          convertMapToObject(item, arrayType.slice(0, -1)) // Remove 's' from plural
+                        );
+                        wasFixed = true;
+                      }
+                    }
+                  });
+                  
+                  if (wasFixed) {
+                    argsString = JSON.stringify(fixedArgs);
+                    console.log('✅ WASM Map serialization fixed');
                   }
                 }
               } catch (e) {
@@ -205,10 +232,99 @@
             }
           }
         };
-        // Provide a no-op event.listen for external HTTP pages to avoid capability errors in Tauri v2
+        // SSE-based event system for HTTP clients
         window.__TAURI__.event = window.__TAURI__.event || {};
-        window.__TAURI__.event.listen = async function(_eventName, _handler) {
-          return { unlisten() {} };
+        
+        // Global SSE connection and event handlers
+        let sseConnection = null;
+        const eventHandlers = new Map();
+        
+        // Initialize SSE connection
+        function initializeSSE() {
+          if (sseConnection) return; // Already connected
+          
+          console.log('🔗 Initializing SSE connection to /api/events');
+          sseConnection = new EventSource('/api/events');
+          
+          sseConnection.onopen = function() {
+            console.log('✅ SSE connection established');
+          };
+          
+          sseConnection.onerror = function(error) {
+            console.error('❌ SSE connection error:', error);
+            // Reconnect after delay
+            setTimeout(() => {
+              if (sseConnection.readyState === EventSource.CLOSED) {
+                console.log('🔄 Reconnecting SSE...');
+                sseConnection = null;
+                initializeSSE();
+              }
+            }, 5000);
+          };
+          
+          // Handle heartbeat events
+          sseConnection.addEventListener('heartbeat', function(event) {
+            console.log('💓 SSE heartbeat:', event.data);
+          });
+          
+          // Handle agent_message_update events
+          sseConnection.addEventListener('agent_message_update', function(event) {
+            console.log('📨 Received agent_message_update via SSE:', event.data);
+            try {
+              const eventData = JSON.parse(event.data);
+              if (eventHandlers.has('agent_message_update')) {
+                eventHandlers.get('agent_message_update').forEach(handler => {
+                  handler({ payload: eventData.payload });
+                });
+              }
+            } catch (e) {
+              console.error('Failed to parse agent_message_update event:', e);
+            }
+          });
+          
+          // Handle agent_process_status events
+          sseConnection.addEventListener('agent_process_status', function(event) {
+            console.log('📊 Received agent_process_status via SSE:', event.data);
+            try {
+              const eventData = JSON.parse(event.data);
+              if (eventHandlers.has('agent_process_status')) {
+                eventHandlers.get('agent_process_status').forEach(handler => {
+                  handler({ payload: eventData.payload });
+                });
+              }
+            } catch (e) {
+              console.error('Failed to parse agent_process_status event:', e);
+            }
+          });
+        }
+        
+        window.__TAURI__.event.listen = async function(eventName, handler) {
+          console.log(`🎧 Setting up SSE listener for event: ${eventName}`);
+          
+          // Initialize SSE connection if needed
+          if (!sseConnection) {
+            initializeSSE();
+          }
+          
+          // Store the handler
+          if (!eventHandlers.has(eventName)) {
+            eventHandlers.set(eventName, []);
+          }
+          eventHandlers.get(eventName).push(handler);
+          
+          // Return unlisten function
+          return { 
+            unlisten() {
+              console.log(`🔇 Unlistening from event: ${eventName}`);
+              if (eventHandlers.has(eventName)) {
+                const handlers = eventHandlers.get(eventName);
+                const index = handlers.indexOf(handler);
+                if (index !== -1) {
+                  handlers.splice(index, 1);
+                }
+              }
+            }
+          };
         };
       })();
     </script>

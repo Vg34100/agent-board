@@ -5,7 +5,8 @@ use axum::{
     body::Body,
     extract::State,
     http::{header, StatusCode, Uri},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Sse},
+    response::sse::{Event, KeepAlive},
     routing::{get, post},
     Json, Router,
 };
@@ -16,21 +17,58 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
+use std::convert::Infallible;
+use once_cell;
+use std::env;
 
 #[derive(Clone)]
 pub struct WebState {
     pub app: tauri::AppHandle,
+    pub event_sender: broadcast::Sender<String>,
 }
+
+// Global event sender for the HTTP interface
+pub static EVENT_SENDER: once_cell::sync::Lazy<Arc<Mutex<Option<broadcast::Sender<String>>>>> = 
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
 #[derive(RustEmbed)]
 #[folder = "../dist"]
 struct Frontend;
 
+// Debug helper to reduce logging noise unless AGENT_BOARD_DEBUG=1
+fn debug_log(message: &str) {
+    if env::var("AGENT_BOARD_DEBUG").unwrap_or_default() == "1" {
+        println!("{}", message);
+    }
+}
+
+// Check if we should filter out noisy requests
+fn should_suppress_request_log(path: &str) -> bool {
+    // Suppress Chrome DevTools requests and other development noise
+    path.contains("/.well-known/") ||
+    path.contains("/devtools/") || 
+    path.contains("appspecific") ||
+    path.contains("favicon.ico")
+}
+
 pub fn spawn(listener: StdTcpListener, app: tauri::AppHandle) {
     // Run the web server on its own dedicated Tokio runtime to avoid coupling
     // with Tauri's async runtime and to ensure it always progresses.
     thread::spawn(move || {
-        let state = WebState { app };
+        let (event_sender, _) = broadcast::channel(100);
+        
+        // Store the event sender globally so agent.rs can access it
+        {
+            let mut global_sender = EVENT_SENDER.lock().unwrap();
+            *global_sender = Some(event_sender.clone());
+        }
+        
+        let state = WebState { 
+            app, 
+            event_sender,
+        };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -55,20 +93,26 @@ fn build_router(state: WebState) -> Router {
         .route("/", get(index))
         .route("/index.html", get(index))
         .route("/api/invoke", post(invoke))
+        .route("/api/events", get(sse_handler))
         .route("/*path", get(static_asset))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }
 
 async fn index() -> impl IntoResponse {
-    println!("GET / -> index.html");
+    debug_log("GET / -> index.html");
     asset_to_response("index.html")
 }
 
 async fn static_asset(uri: Uri) -> impl IntoResponse {
     // Strip leading '/'
     let p = uri.path().trim_start_matches('/');
-    println!("GET /{}", p);
+    
+    // Only log requests if debug is enabled and not filtered
+    if !should_suppress_request_log(p) {
+        debug_log(&format!("GET /{}", p));
+    }
+    
     // If empty, serve index
     if p.is_empty() {
         return asset_to_response("index.html");
@@ -545,4 +589,59 @@ async fn invoke(State(state): State<WebState>, Json(req): Json<InvokeReq>) -> im
     };
 
     (StatusCode::OK, Json(out))
+}
+
+// SSE handler for real-time events
+async fn sse_handler(State(state): State<WebState>) -> impl IntoResponse {
+    debug_log("SSE connection established");
+    
+    let mut receiver = state.event_sender.subscribe();
+    
+    let stream = async_stream::stream! {
+        // Send a heartbeat event to confirm connection
+        yield Ok::<Event, std::convert::Infallible>(Event::default().event("heartbeat").data("connected"));
+        
+        loop {
+            match receiver.recv().await {
+                Ok(event_data) => {
+                    debug_log(&format!("Broadcasting SSE event: {}", event_data));
+                    
+                    // Parse the event to determine type
+                    if let Ok(event_json) = serde_json::from_str::<Value>(&event_data) {
+                        if let Some(event_type) = event_json.get("event").and_then(|v| v.as_str()) {
+                            yield Ok::<Event, std::convert::Infallible>(Event::default().event(event_type).data(event_data));
+                        } else {
+                            yield Ok::<Event, std::convert::Infallible>(Event::default().event("unknown").data(event_data));
+                        }
+                    }
+                },
+                Err(broadcast::error::RecvError::Closed) => {
+                    debug_log("SSE event channel closed");
+                    break;
+                },
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    // Client is lagging, continue
+                    continue;
+                }
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// Function to broadcast events to HTTP clients
+pub fn broadcast_to_http(event_name: &str, payload: Value) {
+    if let Some(sender) = EVENT_SENDER.lock().unwrap().as_ref() {
+        let event_data = json!({
+            "event": event_name,
+            "payload": payload
+        });
+        
+        if let Err(e) = sender.send(event_data.to_string()) {
+            debug_log(&format!("Failed to broadcast HTTP event: {}", e));
+        } else {
+            debug_log(&format!("✅ Broadcasted HTTP event: {} with payload: {}", event_name, payload));
+        }
+    }
 }

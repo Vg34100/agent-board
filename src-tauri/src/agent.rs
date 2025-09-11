@@ -811,14 +811,19 @@ pub fn spawn_claude_process(
         map.insert(process_id.clone(), process.clone());
         
         // Emit process creation event
-        match app.emit("agent_process_status", serde_json::json!({
+        let status_payload = serde_json::json!({
             "process_id": process_id,
             "task_id": task_id,
             "status": "starting"
-        })) {
+        });
+        
+        match app.emit("agent_process_status", status_payload.clone()) {
             Ok(_) => println!("✅ Emitted agent_process_status event: {} starting", process_id),
             Err(e) => println!("❌ Failed to emit process status event: {:?}", e)
         };
+        
+        // Also broadcast to HTTP clients
+        crate::web::broadcast_to_http("agent_process_status", status_payload);
     }
 
     // Create a temporary config file to set permissions  
@@ -858,14 +863,19 @@ pub fn spawn_claude_process(
                     proc.status = "running".to_string();
                     
                     // Emit process status update event
-                    match app.emit("agent_process_status", serde_json::json!({
+                    let status_payload = serde_json::json!({
                         "process_id": process_id,
                         "task_id": proc.task_id,
                         "status": "running"
-                    })) {
+                    });
+                    
+                    match app.emit("agent_process_status", status_payload.clone()) {
                         Ok(_) => println!("✅ Emitted agent_process_status event: {} running", process_id),
                         Err(e) => println!("❌ Failed to emit process status event: {:?}", e)
                     };
+                    
+                    // Also broadcast to HTTP clients
+                    crate::web::broadcast_to_http("agent_process_status", status_payload);
                 }
             }
 
@@ -921,14 +931,19 @@ pub fn spawn_claude_process(
                                         println!("Message stored. Total messages: {}", proc.messages.len());
                                         
                                         // Emit Tauri event for real-time updates
-                                        match app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                        let message_payload = serde_json::json!({
                                             "process_id": process_id_stdout,
                                             "task_id": proc.task_id,
                                             "message": message
-                                        })) {
+                                        });
+                                        
+                                        match app_handle_stdout.emit("agent_message_update", message_payload.clone()) {
                                             Ok(_) => println!("✅ Emitted agent_message_update event for process {}", process_id_stdout),
                                             Err(e) => println!("❌ Failed to emit event: {:?}", e)
                                         };
+                                        
+                                        // Also broadcast to HTTP clients
+                                        crate::web::broadcast_to_http("agent_message_update", message_payload);
                                     }
                                 },
                                 None => {
@@ -1247,14 +1262,19 @@ pub fn spawn_codex_process(
         let mut map = processes.lock().unwrap();
         map.insert(process_id.clone(), process.clone());
 
-        match app.emit("agent_process_status", serde_json::json!({
+        let status_payload = serde_json::json!({
             "process_id": process_id,
             "task_id": task_id,
             "status": "starting"
-        })) {
+        });
+        
+        match app.emit("agent_process_status", status_payload.clone()) {
             Ok(_) => println!("✅ Emitted agent_process_status event: {} starting", process_id),
             Err(e) => println!("⚠️ Failed to emit process status event: {:?}", e)
         };
+        
+        // Also broadcast to HTTP clients
+        crate::web::broadcast_to_http("agent_process_status", status_payload);
     }
 
     match cmd.spawn() {
@@ -1288,14 +1308,19 @@ pub fn spawn_codex_process(
                 let mut map = processes.lock().unwrap();
                 if let Some(proc) = map.get_mut(&process_id) {
                     proc.status = "running".to_string();
-                    match app.emit("agent_process_status", serde_json::json!({
+                    let status_payload = serde_json::json!({
                         "process_id": process_id,
                         "task_id": proc.task_id,
                         "status": "running"
-                    })) {
+                    });
+                    
+                    match app.emit("agent_process_status", status_payload.clone()) {
                         Ok(_) => println!("✅ Emitted agent_process_status event: running"),
                         Err(e) => println!("⚠️ Failed to emit process status event: {:?}", e)
                     };
+                    
+                    // Also broadcast to HTTP clients
+                    crate::web::broadcast_to_http("agent_process_status", status_payload);
                 }
             }
 
@@ -1337,14 +1362,19 @@ pub fn spawn_codex_process(
                                         println!("Codex message stored. Total messages: {}", proc.messages.len());
                                         
                                         // Emit Tauri event for real-time updates (fixed to match Claude pattern)
-                                        match app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                        let message_payload = serde_json::json!({
                                             "process_id": process_id_stdout,
                                             "task_id": proc.task_id,
                                             "message": message
-                                        })) {
+                                        });
+                                        
+                                        match app_handle_stdout.emit("agent_message_update", message_payload.clone()) {
                                             Ok(_) => println!("✅ Emitted Codex agent_message_update event for process {}", process_id_stdout),
                                             Err(e) => println!("❌ Failed to emit Codex event: {:?}", e)
                                         };
+                                        
+                                        // Also broadcast to HTTP clients
+                                        crate::web::broadcast_to_http("agent_message_update", message_payload);
                                     }
                                 }
                             }
@@ -1361,14 +1391,19 @@ pub fn spawn_codex_process(
                                         println!("Codex message stored from buffer. Total messages: {}", proc.messages.len());
                                         
                                         // Emit Tauri event for real-time updates (fixed to match Claude pattern)
-                                        match app_handle_stdout.emit("agent_message_update", serde_json::json!({
+                                        let message_payload = serde_json::json!({
                                             "process_id": process_id_stdout,
                                             "task_id": proc.task_id,
                                             "message": message
-                                        })) {
+                                        });
+                                        
+                                        match app_handle_stdout.emit("agent_message_update", message_payload.clone()) {
                                             Ok(_) => println!("✅ Emitted Codex agent_message_update event from buffer for process {}", process_id_stdout),
                                             Err(e) => println!("❌ Failed to emit Codex buffer event: {:?}", e)
                                         };
+                                        
+                                        // Also broadcast to HTTP clients
+                                        crate::web::broadcast_to_http("agent_message_update", message_payload);
                                     }
                                 }
                             }
