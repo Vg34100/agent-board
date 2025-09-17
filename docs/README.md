@@ -1,129 +1,77 @@
 # Agent Board Documentation
 
-## 📚 Documentation Index
+## Documentation Index
 
-This documentation captures the complete development process, current status, and future roadmap for Agent Board - an AI Kanban management tool built with Tauri + Leptos.
+This folder is the living source of truth for how Agent Board works today and how to extend it.
 
-### 📖 Documentation Files
+Key docs
+- [architecture.md](./architecture.md) — Deep internals: data flow, modules, events, extension points
+- [feature-pattern.md](./feature-pattern.md) — Standard template to add new features (UI → command → HTTP/store)
+- [roadmap.md](./roadmap.md) — Current status, priorities, and future phases
+- [troubleshooting.md](./troubleshooting.md) — Common issues and fixes
+- [store.md](./store.md) — Persistence patterns with `tauri-plugin-store`
+- [lan-mode.md](./lan-mode.md) — Embedded HTTP server, invoke shim, and LAN usage
+- [agent-events.md](./agent-events.md) — SSE events and message payloads
+- [ui-style-guide.md](./ui-style-guide.md) — Visual and UX conventions
+- [development-log.md](./development-log.md) — Running log of findings and decisions
+- [immediate-next-steps.md](./immediate-next-steps.md) — Near‑term tasks and recently fixed items
 
-1. **[immediate-next-steps.md](./immediate-next-steps.md)** - 🔥 START HERE
-   - Critical TaskModal callback issue that blocks progress
-   - Exact files to fix and approaches to try
-   - Phase 1 tasks and success criteria
+## Current Status
 
-2. **[development-log.md](./development-log.md)** - Learning History
-   - Complete development history and mistakes made
-   - What's working vs what failed
-   - Technical decisions and lessons learned
+Completed
+- Desktop app (Tauri) with Leptos UI
+- Projects and per‑project kanban boards (5 columns)
+- Per‑task git worktrees (git2) stored in app data; open folder / open IDE actions
+- Full persistence via store: projects, tasks, agent messages, agent processes, settings
+- Agent processes: spawn Claude Code or Codex in the worktree; messages stream into sidebar
+- Embedded Axum server that serves the same UI on LAN; HTTP invoke shim + SSE for events
 
-3. **[roadmap.md](./roadmap.md)** - Long-term Vision
-   - Complete feature roadmap from MVP to production
-   - Phase-by-phase development plan
-   - Claude Code integration strategy
+Next up
+- Drag & drop task moves
+- Review/merge/PR flows from worktrees
+- System tray polish and app automation
 
-4. **[troubleshooting.md](./troubleshooting.md)** - Problem Solving
-   - Common build errors and solutions
-   - Hot reload issues and fixes
-   - Component and CSS troubleshooting
+## Quick Start
 
-5. **[store.md](./store.md)** - Data Persistence Guide ⭐ NEW
-   - Complete Tauri store API implementation guide
-   - What was broken vs what works now
-   - Critical fix for project/task persistence
-
-## 🚀 Current Status: FULLY FUNCTIONAL ✨
-
-### ✅ Completed Features
-- Tauri + Leptos app running successfully
-- Projects page with navigation to kanban boards  
-- 5-column kanban layout (ToDo → InProgress → InReview → Done → Cancelled)
-- **Complete data persistence** - projects and tasks save between sessions
-- **Working project creation** - create projects with git initialization
-- **Working task creation** - add tasks that persist to storage
-- **Project editing** - edit existing projects with pre-populated data
-- **Task editing and management** - edit/delete/cancel tasks with dropdown menus
-- Square, minimal, programmer-focused UI design
-- Full-width layout with monospace fonts
-- Context-based navigation system
-- **Proper Tauri store API implementation** ⭐ MAJOR FIX
-
-### 🎉 Major System Fix Complete
-**Store API Modernization** - Fixed the critical persistence system that was completely broken. Projects now save, tasks persist between sessions, and the "Loading..." header issue is resolved. See [store.md](./store.md) for technical details.
-
-### 🎯 Next Phase Goals
-1. ✅ COMPLETED - Project persistence and task storage  
-2. Add drag & drop for task status changes
-3. Implement git worktree integration
-4. Add system tray functionality
-5. Implement agent chat interface
-
-## 🛠️ Quick Start Commands
-
+Commands
 ```bash
-# Start development server
-cargo tauri dev
-
-# Check for compilation errors
-cargo check
-
-# Clean rebuild if needed
-cargo clean && cargo tauri dev
+cargo tauri dev                    # Run desktop + embedded server
+cargo check                        # Fast type/compilation check
+cargo clean && cargo tauri dev     # Clean rebuild if needed
 ```
 
-## 📁 Project Structure
+Prereqs
+- Rust stable, `wasm32-unknown-unknown` target
+- `tauri-cli`, `trunk` installed
+- Git installed; VS Code for IDE open action on Windows
+
+## Project Structure
 
 ```
 agent-board/
-├── src/
-│   ├── app.rs              # Main navigation logic
-│   ├── main.rs             # Entry point
-│   ├── models/             # Data structures (Project, Task, TaskStatus)
-│   ├── pages/              # Main views (Projects, Kanban)
-│   └── components/         # Reusable UI (TaskModal - broken)
-├── src-tauri/              # Tauri backend configuration
-├── docs/                   # This documentation
-├── styles.css              # Global styles (square, minimal design)
-└── target/                 # Build artifacts
+  src/                    # Leptos/WASM UI
+    app.rs                # App root; dev banner; view switching
+    pages/                # Projects, Kanban
+    components/           # Modals and sidebar (agent chat & actions)
+    models/               # Project, Task, enums
+  src-tauri/              # Tauri + backend
+    src/
+      lib.rs              # Commands, plugins, setup (port + LAN title)
+      web.rs              # Axum: /, /api/invoke, /api/events (SSE)
+      git.rs              # Worktrees, open folder/IDE helpers
+      agent.rs            # Spawn/track agents (Claude/Codex), parse output
+  dist/                   # Built assets (embedded in release)
+  docs/                   # This documentation
+  index.html              # HTTP invoke shim + SSE bridge
+  styles.css              # Minimal, programmer‑focused styling
 ```
 
-## 🎨 Design Philosophy
+## Design Principles
+- Programmer‑centric, minimal UI (see `ui-style-guide.md`)
+- Clean separation: UI (Leptos) ↔ commands (Tauri) ↔ services (Axum/git/agents)
+- Everything evented: agent output broadcasts over SSE to UI
 
-**Square, Minimal, Programmer-Focused**
-- Monospace fonts (Cascadia Code, Fira Code, JetBrains Mono)
-- No rounded corners anywhere
-- Full-width layout utilizing entire screen
-- Dark theme with professional coding environment feel
-- Minimal padding and tight spacing between elements
-
-## 💡 Key Architectural Decisions
-
-### ✅ What's Working
-- **Context Navigation**: Enums + signals instead of complex routing
-- **CSS-First Design**: Custom styles over component libraries
-- **Component Separation**: Clear pages/ and components/ structure
-- **Tauri Integration**: Desktop app with web frontend
-
-### ❌ Lessons Learned
-- **Avoid leptos_router complexity**: Simple context navigation works better
-- **Component callbacks are tricky**: Need simpler patterns for parent-child communication
-- **Start simple**: Add complexity incrementally, not all at once
-
-## 🔄 Development Workflow
-
-1. **Read [immediate-next-steps.md](./immediate-next-steps.md)** for current priorities
-2. **Check [troubleshooting.md](./troubleshooting.md)** if you hit build errors
-3. **Update [development-log.md](./development-log.md)** with new learnings
-4. **Reference [roadmap.md](./roadmap.md)** for long-term planning
-
-## 📞 Emergency Recovery
-
-If development gets completely stuck:
-
-1. **Minimal Working State**: Comment out broken features, get basic app running
-2. **Incremental Development**: Add one feature at a time, test each step  
-3. **Reference Examples**: Look at official Leptos examples for working patterns
-4. **Documentation**: All problems and solutions should be documented here
-
----
-
-**This documentation is living** - update it as development progresses to maintain a complete development history and troubleshooting guide.
+## Notes
+- New repos are initialized with README + initial commit to support worktrees.
+- LAN usage is unauthenticated by default — suitable for local networks only.
+- See `architecture.md` for adding a new feature end‑to‑end (UI → command → store/HTTP).

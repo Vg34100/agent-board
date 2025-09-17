@@ -1,86 +1,74 @@
-# Tauri + Leptos
+# Agent Board
 
-This template should help get you started developing with Tauri and Leptos.
+AI Kanban for orchestrating coding tasks with isolated git worktrees and agent processes. Desktop app (Tauri) with a Leptos/WASM UI, plus an embedded Axum HTTP server for LAN access.
 
-## Recommended IDE Setup
+## Highlights
+- Projects and 5‑column kanban (ToDo, In Progress, In Review, Done, Cancelled)
+- Per‑task git worktrees (git2) in app data; open folder / open IDE buttons
+- Agent processes: spawn Claude Code or Codex in the worktree, stream output
+- Persistence via `tauri-plugin-store` (projects, tasks, agent messages/processes, settings)
+- Embedded HTTP server exposes the same UI on LAN; browser clients call Tauri commands via an HTTP invoke shim; SSE events for real‑time updates
 
-[VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+## Architecture
+- Frontend (Leptos/WASM)
+  - Pages: `Projects`, `Kanban`
+  - Components: task/project modals, task sidebar (agent chat/actions)
+  - Compiled with Trunk; assets embedded with `rust-embed` in release
+  - HTTP invoke shim in `index.html` maps `window.__TAURI__.core.invoke` to `POST /api/invoke` when running over http(s)
+- Desktop Shell (Tauri)
+  - `src-tauri/src/lib.rs` registers all commands and plugins
+  - `tauri-plugin-store` for persistence; `tauri-plugin-opener` for OS integration
+- Embedded Web (Axum)
+  - `src-tauri/src/web.rs` serves UI and implements `POST /api/invoke` + `GET /api/events` (SSE)
+  - Prefers port `17872`, falls back to an available port; shows LAN URL in window title
+- Git Worktrees
+  - `src-tauri/src/git.rs` uses git2 to create/remove worktrees and open locations/IDE
+  - Worktrees live under app data: `<AppData>/com.video.agent-board/worktrees/<task_id>`
+- Agent Runner
+  - `src-tauri/src/agent.rs` spawns Claude or Codex CLI in the worktree, parses JSONL/text, persists messages/processes, broadcasts events
+  - SSE event names: `agent_message_update`, `agent_process_status`
 
-# Agent Board - AI Kanban Management Tool
+## Data Files (Store)
+- `projects.json` → key `projects` (array)
+- `tasks_{project_id}.json` → key `tasks` (array)
+- `agent_messages_{task_id}.json` → key `messages` (array)
+- `agent_processes.json` → key `processes` (array)
+- `agent_settings.json` → key `settings` (object)
 
-## Project Overview
-A desktop application for managing AI coding agents (specifically Claude Code) through a kanban-style interface. Built with Rust (Leptos) frontend and integrated backend for git workflow automation.
+## Prerequisites
+- Rust stable + target `wasm32-unknown-unknown`: `rustup target add wasm32-unknown-unknown`
+- Tauri CLI: `cargo install tauri-cli`
+- Trunk: `cargo install trunk`
+- Git installed and available in PATH
+- Claude or Codex CLI installed if you plan to use agent runs
 
-## Core Concept
-Replace traditional development workflow with AI-orchestrated tasks:
-- Create coding tasks in kanban columns (TODO → IN PROGRESS → IN REVIEW → DONE)
-- Each task spawns Claude Code in isolated git worktree
-- Automated environment setup (venv, dependencies)
-- Streamlined review and merge workflow
-- System tray application for easy access
+## Development
+- Start app: `cargo tauri dev`
+- Force a clean dev: `cargo clean && cargo tauri dev`
+- Optional verbose server logs: set `AGENT_BOARD_DEBUG=1`
 
-## Technical Architecture
-$$$
-Agent Board (Tauri + Leptos)
-├── Frontend: Rust/Leptos kanban UI
-├── Backend: Rust subprocess management
-├── Git Integration: Worktree per task
-├── Claude Code: Spawned processes with session management
-└── Distribution: Single executable with system tray
-$$$
+Notes
+- In dev, Axum serves `dist/` from disk; in release, files are embedded.
+- The app window navigates to `http://127.0.0.1:<port>` so the desktop and browsers share the same UI/runtime.
+- Browser clients use the HTTP invoke shim + SSE; they do not require native Tauri APIs.
 
-## MVP Requirements
+## Using Worktrees
+- Create a project (new or existing git repo). New repos are initialized with a README and initial commit.
+- Create a task; press Start to create a worktree from the repository HEAD.
+- Use “Open Folder” or “Open IDE” to inspect/edit the worktree.
+- Removing a task can also remove its worktree; branches are cleaned up best‑effort.
 
-### Phase 1: Basic Infrastructure
-- [ ] Tauri app with Leptos frontend running
-- [ ] System tray integration (show/hide window)
-- [ ] Basic kanban board with 4 columns (TODO, IN PROGRESS, IN REVIEW, DONE)
-- [ ] Project creation (new or existing git repo)
-- [ ] Task creation with title/description
+## Agent Processes
+- Choose a profile (Claude Code or Codex) per task.
+- Start agent: spawns the respective CLI in the worktree with the task title/description as the initial prompt; messages stream to the sidebar.
+- Messages and process summaries persist; UI listens to SSE events for updates.
 
-### Phase 2: Git Integration
-- [ ] Git worktree creation per task
-- [ ] Branch management (feature/task-{id})
-- [ ] Automated environment setup detection (requirements.txt → venv creation)
-- [ ] Cleanup workflow (remove worktree after completion)
+## Troubleshooting
+- “Unborn HEAD” when creating worktree: initialize repo (the app does this for new projects by creating README + initial commit).
+- “Open IDE” on Windows: code detection tries multiple paths → `code.cmd` → `code`. Ensure VS Code is installed and in PATH.
+- LAN blank page in dev: ensure `dist/index.html` exists (run at least one `trunk build` as part of dev).
 
-### Phase 3: Claude Code Integration
-- [ ] Spawn Claude Code subprocess in task worktree
-- [ ] Capture and display Claude Code session logs
-- [ ] Real-time output streaming to UI
-- [ ] Handle permission requests and user interactions
-- [ ] Session persistence and recovery
+## Docs
+- See `docs/README.md` for the doc index, roadmap, and troubleshooting.
+- See `docs/architecture.md` for deeper internals and extension points.
 
-### Phase 4: Review Workflow
-- [ ] File diff viewer for task changes
-- [ ] Manual testing options (open temp directory)
-- [ ] Git merge functionality
-- [ ] Pull request creation (GitHub API)
-- [ ] Worktree cleanup after PR creation
-
-### Phase 5: Polish
-- [ ] Drag-and-drop task management between columns
-- [ ] Task state persistence (SQLite database)
-- [ ] Error handling and recovery
-- [ ] Configuration management
-- [ ] Performance optimization
-
-## Key Features
-- **Isolated Development**: Each task runs in separate git worktree
-- **Automated Setup**: Auto-detect and create virtual environments
-- **Real-time Monitoring**: Live Claude Code session streaming
-- **Clean Testing**: Remove worktrees, test PRs in main repo
-- **Native Feel**: System tray app, not just localhost port
-
-## Success Criteria
-MVP is complete when:
-1. Can create projects and tasks through UI
-2. Tasks automatically spawn Claude Code in worktrees
-3. Can view live Claude Code output
-4. Can create PRs and cleanup worktrees
-5. Runs as system tray application
-
-## Current Status
-- [x] Tauri project scaffolded with Leptos
-- [ ] Basic dependencies installed (Tauri CLI, Trunk)
-- [ ] First kanban UI prototype
