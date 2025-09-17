@@ -241,9 +241,10 @@ pub fn TaskSidebar(
         
         spawn_local(async move {
             // Listen for agent message update events AND process status updates
+            // Prefer our HTTP-safe SSE bridge to avoid native Tauri permission errors on http:// origins
             let listen_js = js_sys::Function::new_with_args(
                 "eventName,handler",
-                "return window.__TAURI__.event.listen(eventName, handler)"
+                "if (window.AGENT_EVENT_LISTEN) { return window.AGENT_EVENT_LISTEN(eventName, handler); } else { return window.__TAURI__.event.listen(eventName, handler); }"
             );
             
             // Handler for message updates

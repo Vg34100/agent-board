@@ -24,12 +24,19 @@
           originalConsoleError.apply(console, args);
         };
         
-        // Provide a browser shim for Tauri's invoke when running outside Tauri.
+        // Decide transport based on page origin. If we're on http(s), prefer HTTP + SSE even inside Tauri.
+        const isHttp = (location.protocol === 'http:' || location.protocol === 'https:');
+        let hasNativeInvoke = false;
         try {
-          if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-            return; // Tauri desktop/webview - use native invoke
-          }
+          hasNativeInvoke = !!(window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function');
         } catch (_) {}
+        
+        // If we're not on http(s) (i.e., tauri:// asset), and native invoke exists, use native and exit early.
+        if (!isHttp && hasNativeInvoke) {
+          return;
+        }
+        
+        // Ensure namespace exists
         window.__TAURI__ = window.__TAURI__ || {};
         
         function safeSerialize(obj) {
@@ -109,8 +116,10 @@
           }
         }
         
-        window.__TAURI__.core = {
-          invoke: async function(cmd, args) {
+        // Only provide an HTTP invoke shim if native invoke isn't available
+        if (!hasNativeInvoke) {
+          window.__TAURI__.core = {
+            invoke: async function(cmd, args) {
             try {
               console.log('Browser invoke:', cmd, 'with args:', args);
               
@@ -230,9 +239,11 @@
               console.error('Invoke error:', e);
               return null;
             }
-          }
-        };
-        // SSE-based event system for HTTP clients
+            }
+          };
+        }
+        
+        // SSE-based event system for HTTP clients (used whenever we're on http/https)
         window.__TAURI__.event = window.__TAURI__.event || {};
         
         // Global SSE connection and event handlers
@@ -298,8 +309,11 @@
           });
         }
         
-        window.__TAURI__.event.listen = async function(eventName, handler) {
-          console.log(`🎧 Setting up SSE listener for event: ${eventName}`);
+        // Provide a stable global API that our app will call to avoid native permission issues
+        // Always define it on http(s); it uses SSE under the hood and never touches native Tauri events
+        if (isHttp) {
+          window.AGENT_EVENT_LISTEN = async function(eventName, handler) {
+            console.log(`🎧 Setting up SSE listener for event: ${eventName}`);
           
           // Initialize SSE connection if needed
           if (!sseConnection) {
@@ -325,7 +339,21 @@
               }
             }
           };
-        };
+          };
+          
+          // Also try to shadow native listen to help other callers, but our app will call AGENT_EVENT_LISTEN directly
+          try {
+            Object.defineProperty(window.__TAURI__.event, 'listen', {
+              value: window.AGENT_EVENT_LISTEN,
+              writable: false,
+              configurable: false,
+              enumerable: true
+            });
+          } catch (_) {
+            // Fallback assignment if defineProperty fails
+            window.__TAURI__.event.listen = window.AGENT_EVENT_LISTEN;
+          }
+        }
       })();
     </script>
   </head>
