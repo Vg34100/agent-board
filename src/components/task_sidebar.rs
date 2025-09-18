@@ -147,32 +147,48 @@ pub fn TaskSidebar(
                     match invoke("get_agent_messages", js_value).await {
                         js_result if !js_result.is_undefined() => {
                             if let Ok(messages) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(js_result) {
-                                // Update reactive state
-                                set_agent_messages.update(|current| {
-                                    current.clear();
-                                    current.extend(messages.clone());
-                                });
-
-                                // Store into per-process map so groups can show simultaneously
-                                set_messages_by_process.update(|map| {
-                                    map.insert(pid_for_map.clone(), messages.clone());
-                                });
-
-                                // Persist per-process and task-level snapshots
-                                let save_proc_args = serde_json::json!({
-                                    "taskId": task_id_for_save,
-                                    "processId": pid_for_map,
-                                    "messages": messages,
-                                });
-                                if let Ok(save_proc_js) = serde_wasm_bindgen::to_value(&save_proc_args) {
-                                    let _ = invoke("save_process_agent_messages", save_proc_js).await;
-                                }
-                                let save_task_args = serde_json::json!({
-                                    "taskId": task_id_for_save,
-                                    "messages": messages,
-                                });
-                                if let Ok(save_task_js) = serde_wasm_bindgen::to_value(&save_task_args) {
-                                    let _ = invoke("save_task_agent_messages", save_task_js).await;
+                                if messages.is_empty() {
+                                    // Fallback: hydrate from persisted per-process store instead of overwriting with empty
+                                    let args2 = serde_json::json!({ "taskId": task_id_for_save, "processId": pid_for_map });
+                                    if let Ok(js2) = serde_wasm_bindgen::to_value(&args2) {
+                                        let resp2 = invoke("load_process_agent_messages", js2).await;
+                                        if !resp2.is_undefined() {
+                                            if let Ok(stored) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(resp2) {
+                                                // Update state only if we actually have stored content
+                                                if !stored.is_empty() {
+                                                    set_agent_messages.set(stored.clone());
+                                                    set_messages_by_process.update(|map| {
+                                                        map.insert(pid_for_map.clone(), stored.clone());
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Non-empty runtime messages: accept and persist
+                                    set_agent_messages.update(|current| {
+                                        current.clear();
+                                        current.extend(messages.clone());
+                                    });
+                                    set_messages_by_process.update(|map| {
+                                        map.insert(pid_for_map.clone(), messages.clone());
+                                    });
+                                    // Persist per-process and task-level snapshots
+                                    let save_proc_args = serde_json::json!({
+                                        "taskId": task_id_for_save,
+                                        "processId": pid_for_map,
+                                        "messages": messages,
+                                    });
+                                    if let Ok(save_proc_js) = serde_wasm_bindgen::to_value(&save_proc_args) {
+                                        let _ = invoke("save_process_agent_messages", save_proc_js).await;
+                                    }
+                                    let save_task_args = serde_json::json!({
+                                        "taskId": task_id_for_save,
+                                        "messages": messages,
+                                    });
+                                    if let Ok(save_task_js) = serde_wasm_bindgen::to_value(&save_task_args) {
+                                        let _ = invoke("save_task_agent_messages", save_task_js).await;
+                                    }
                                 }
 
                                 // Sticky-scroll attempts: outer sessions and inner message list
