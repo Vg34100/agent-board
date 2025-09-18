@@ -1701,7 +1701,8 @@ pub fn get_process_list() -> Vec<serde_json::Value> {
             "task_id": proc.task_id,
             "status": proc.status,
             "start_time": proc.start_time,
-            "message_count": proc.messages.len()
+            "message_count": proc.messages.len(),
+            "kind": match proc.kind { AgentKind::Claude => "claude", AgentKind::Codex => "codex" }
         }))
         .collect()
 }

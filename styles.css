@@ -1749,6 +1749,37 @@ body {
   border-left: 3px solid #00d4aa;
 }
 
+/* Ensure long agent message content (diffs, code) wraps nicely without horizontal scroll */
+.message .message-content {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message .message-content pre,
+.message .message-content code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+}
+
+/* Process chips */
+.process-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.process-chip {
+  background: #252525;
+  border: 1px solid #444;
+  color: #aaa;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.process-chip.active { border-color: #4a9eff; color: #e0e0e0; }
+.process-chip .kind { color: #666; font-style: italic; margin-left: 4px; }
+
 .message.system {
   border-left: 3px solid #ff6b35;
 }

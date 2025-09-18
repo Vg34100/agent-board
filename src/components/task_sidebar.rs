@@ -642,8 +642,26 @@ pub fn TaskSidebar(
                                             let latest_process_status = current_task_processes.last()
                                                 .and_then(|proc| proc.get("status").and_then(|v| v.as_str()));
                                             
+                                            // Compact process chips for quick switching
+                                            let chips = current_task_processes.iter().map(|proc| {
+                                                let pid = proc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                let status = proc.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                                let kind = proc.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+                                                let is_active = current_process_id.get().as_deref() == Some(pid.as_str());
+                                                view! {
+                                                    <button class=move || format!("process-chip {}", if is_active {"active"} else {""}) on:click={
+                                                        let pidc = pid.clone(); let set_current = set_current_process_id.clone(); let load = load_agent_messages.clone();
+                                                        move |_| { set_current.set(Some(pidc.clone())); load(pidc.clone()); }
+                                                    }>
+                                                        {format!("{} · {}", &pid[..pid.len().min(6)], status)}
+                                                        <span class="kind">{format!(" {}", kind)}</span>
+                                                    </button>
+                                                }
+                                            }).collect::<Vec<_>>();
+
                                             view! {
                                                 <div class="agents-tab">
+                                                    <div class="process-chips">{chips}</div>
                                                     <div class="agent-sessions" id={format!("agent-sessions-{}", task_id.clone())}>
                                                         {if !has_processes {
                                                             // No processes started yet
@@ -1022,6 +1040,47 @@ pub fn TaskSidebar(
                                                                 }
                                                                 class="message-input"
                                                                 on:input=move |ev| set_message_input.set(event_target_value(&ev))
+                                                                on:keydown={
+                                                                    let current_process_id = current_process_id.clone();
+                                                                    let message_input = message_input.clone();
+                                                                    let set_message_input = set_message_input.clone();
+                                                                    let set_is_sending_message = set_is_sending_message.clone();
+                                                                    let set_current_process_id = set_current_process_id.clone();
+                                                                    let load_agent_messages = load_agent_messages.clone();
+                                                                    let worktree_opt = _task_worktree_path.clone();
+                                                                    move |ev| {
+                                                                        let ke: web_sys::KeyboardEvent = ev.clone().unchecked_into();
+                                                                        if ke.key() == "Enter" && !ke.shift_key() {
+                                                                            ev.prevent_default();
+                                                                            if current_process_id.get().is_none() { return; }
+                                                                            if worktree_opt.is_none() { return; }
+                                                                            let pid = current_process_id.get().unwrap();
+                                                                            let worktree_path = worktree_opt.clone().unwrap();
+                                                                            let msg = message_input.get();
+                                                                            if msg.trim().is_empty() { return; }
+                                                                            set_is_sending_message.set(true);
+                                                                            let lam = load_agent_messages.clone();
+                                                                            spawn_local(async move {
+                                                                                let args = serde_json::json!({
+                                                                                    "processId": pid,
+                                                                                    "message": msg,
+                                                                                    "worktreePath": worktree_path,
+                                                                                });
+                                                                                if let Ok(js_value) = to_value(&args) {
+                                                                                    let resp = invoke("send_agent_message", js_value).await;
+                                                                                    if !resp.is_undefined() {
+                                                                                        if let Ok(new_pid) = serde_wasm_bindgen::from_value::<String>(resp) {
+                                                                                            set_current_process_id.set(Some(new_pid.clone()));
+                                                                                            set_message_input.set(String::new());
+                                                                                            lam(new_pid);
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                                set_is_sending_message.set(false);
+                                                                            });
+                                                                        }
+                                                                    }
+                                                                }
                                                                 prop:value=move || message_input.get()
                                                                 disabled={move || current_process_id.get().is_none() || !worktree_available || is_sending_message.get()}
                                                             />
@@ -1088,7 +1147,11 @@ pub fn TaskSidebar(
                                         }.into_any(),
                                         "processes" => {
                                             let processes = all_processes.get();
-                                            let has_processes = !processes.is_empty();
+                                            let current_task_processes: Vec<_> = processes.iter()
+                                                .filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task.id))
+                                                .cloned()
+                                                .collect();
+                                            let has_processes = !current_task_processes.is_empty();
                                             
                                             view! {
                                                 <div class="processes-tab">
@@ -1104,7 +1167,7 @@ pub fn TaskSidebar(
                                                         } else {
                                                             view! {
                                                                 <div class="process-items">
-                                                                    {processes.into_iter().map(|proc| {
+                                                                    {processes.into_iter().filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task.id)).map(|proc| {
                                                                         let proc_id = proc.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
                                                                         let status = proc.get("status").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
                                                                         let msg_count = proc.get("message_count").and_then(|v| v.as_u64()).unwrap_or(0);
