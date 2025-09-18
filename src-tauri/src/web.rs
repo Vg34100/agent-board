@@ -507,6 +507,19 @@ async fn invoke(State(state): State<WebState>, Json(req): Json<InvokeReq>) -> im
                 }
             } else { json!("Missing processId/message/worktreePath") }
         }
+        "send_agent_message_with_profile" => {
+            if let (Some(process_id), Some(message), Some(worktree_path), Some(profile)) = (
+                str_arg_from(&args, &["processId", "process_id"]),
+                str_arg_from(&args, &["message"]),
+                str_arg_from(&args, &["worktreePath", "worktree_path"]),
+                str_arg_from(&args, &["profile"]),
+            ) {
+                match send_agent_message_with_profile(app.clone(), process_id, message, worktree_path, profile).await {
+                    Ok(v) => json!(v),
+                    Err(e) => json!(e),
+                }
+            } else { json!("Missing processId/message/worktreePath/profile") }
+        }
         "get_process_list" => match get_process_list().await {
             Ok(v) => json!(v),
             Err(_) => json!([]),

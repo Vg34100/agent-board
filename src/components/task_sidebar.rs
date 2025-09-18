@@ -54,8 +54,8 @@ pub fn TaskSidebar(
     let (agent_messages, set_agent_messages) = signal(Vec::<AgentMessage>::new());
     let (all_processes, set_all_processes) = signal(Vec::<serde_json::Value>::new());
     let (current_process_id, set_current_process_id) = signal(Option::<String>::None);
-    let (_message_input, _set_message_input) = signal(String::new());
-    let (_is_sending_message, _set_is_sending_message) = signal(false);
+    let (message_input, set_message_input) = signal(String::new());
+    let (is_sending_message, set_is_sending_message) = signal(false);
     
     // Clone task data for use in closures
     let task_title = task.title.clone();
@@ -63,9 +63,35 @@ pub fn TaskSidebar(
     let task_status = task.status.clone();
     let task_id = task.id.clone();
     let _task_worktree_path = task.worktree_path.clone();
+    let worktree_available = _task_worktree_path.is_some();
     
     // Local selected profile (default from task)
     let (selected_profile, set_selected_profile) = signal(task.profile.clone());
+
+    // On mount: scroll agent sessions to bottom once, to show latest messages
+    {
+        let tid = task.id.clone();
+        // One-shot mount scroll using a local closure that captures tid by clone
+        let scroll_on_mount = move || {
+            let tid2 = tid.clone();
+            spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(50).await;
+                if let Some(window) = web_sys::window() {
+                    if let Some(doc) = window.document() {
+                        let container_id = format!("agent-sessions-{}", tid2);
+                        if let Some(el) = doc.get_element_by_id(&container_id) {
+                            use wasm_bindgen::JsCast;
+                            if let Ok(div) = el.dyn_into::<web_sys::HtmlElement>() {
+                                let sh = div.scroll_height() as i32;
+                                div.set_scroll_top(sh);
+                            }
+                        }
+                    }
+                }
+            });
+        };
+        scroll_on_mount();
+    }
 
     // Determine if description is long (more than 5 lines approximately)
     let description_is_long = task_description.len() > 200; // Rough estimate
@@ -109,6 +135,26 @@ pub fn TaskSidebar(
                                 });
                                 if let Ok(save_js) = serde_wasm_bindgen::to_value(&save_args) {
                                     let _ = invoke("save_task_agent_messages", save_js).await;
+                                }
+
+                                // Sticky-scroll: if user is near bottom, keep them at the bottom
+                                if let Some(window) = web_sys::window() {
+                                    if let Some(doc) = window.document() {
+                                        // Scroll the actual scroll container (.agent-sessions), not just the inner content
+                                        let container_id = format!("agent-sessions-{}", task_id_for_save);
+                                        if let Some(el) = doc.get_element_by_id(&container_id) {
+                                            use wasm_bindgen::JsCast;
+                                            if let Ok(div) = el.dyn_into::<web_sys::HtmlElement>() {
+                                                let scroll_top = div.scroll_top() as f64;
+                                                let client_height = div.client_height() as f64;
+                                                let scroll_height = div.scroll_height() as f64;
+                                                let gap = scroll_height - (scroll_top + client_height);
+                                                if gap < 120.0 {
+                                                    div.set_scroll_top(scroll_height as i32);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -535,12 +581,29 @@ pub fn TaskSidebar(
                                             let set_active_tab = set_active_tab.clone();
                                             let load_agent_messages = load_agent_messages.clone();
                                             let current_process_id = current_process_id.clone();
+                                            let task_id_for_scroll = task_id.clone();
                                             move |_| {
                                                 set_active_tab.set("agents".to_string());
                                                 // Refresh messages when agents tab is clicked
                                                 if let Some(process_id) = current_process_id.get_untracked() {
                                                     load_agent_messages(process_id);
                                                 }
+                                                // Force scroll to bottom when switching to Agents tab
+                                                let tid = task_id_for_scroll.clone();
+                                                spawn_local(async move {
+                                                    if let Some(window) = web_sys::window() {
+                                                        if let Some(doc) = window.document() {
+                                                            let container_id = format!("agent-sessions-{}", tid);
+                                                            if let Some(el) = doc.get_element_by_id(&container_id) {
+                                                                use wasm_bindgen::JsCast;
+                                                                if let Ok(div) = el.dyn_into::<web_sys::HtmlElement>() {
+                                                                    let scroll_height = div.scroll_height() as i32;
+                                                                    div.set_scroll_top(scroll_height);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
                                             }
                                         }
                                     >"Agents"</button>
@@ -581,7 +644,7 @@ pub fn TaskSidebar(
                                             
                                             view! {
                                                 <div class="agents-tab">
-                                                    <div class="agent-sessions">
+                                                    <div class="agent-sessions" id={format!("agent-sessions-{}", task_id.clone())}>
                                                         {if !has_processes {
                                                             // No processes started yet
                                                             view! {
@@ -606,7 +669,7 @@ pub fn TaskSidebar(
                                                                 "running" => {
                                                                     if has_messages {
                                                                         view! {
-                                                                            <div class="message-list">
+                                                                            <div class="message-list" id={format!("agent-messages-{}", task_id.clone())}>
                                                                                 {
                                                                                     // Group agent_reasoning messages together
                                                                                     let mut processed_messages = Vec::new();
@@ -774,7 +837,7 @@ pub fn TaskSidebar(
                                                                     // Use same structure as running - no extra completion indicator
                                                                     if has_messages {
                                                                         view! {
-                                                                            <div class="message-list">
+                                                                            <div class="message-list" id={format!("agent-messages-{}", task_id.clone())}>
                                                                                         {
                                                                                             // Group agent_reasoning messages together for completed status too
                                                                                             let mut processed_messages = Vec::new();
@@ -939,17 +1002,74 @@ pub fn TaskSidebar(
                                                         }}
                                                     </div>
                                                     
-                                                    {/* Chat Input - TODO: Enable when interactive chat is implemented */}
+                                                    {/* Chat Input */}
                                                     <div class="chat-input-section">
                                                         <div class="input-container">
-                                                            <button class="profile-btn" disabled=true>"Profile"</button>
+                                                            <button class="profile-btn" title="Agent profile from previous run" disabled=true>
+                                                                {match selected_profile.get() {
+                                                                    AgentProfile::ClaudeCode => "Claude",
+                                                                    AgentProfile::Codex => "Codex",
+                                                                }}
+                                                            </button>
                                                             <input 
                                                                 type="text" 
-                                                                placeholder="Interactive chat coming soon..."
+                                                                placeholder={
+                                                                    if current_process_id.get().is_some() && worktree_available {
+                                                                        "Type a reply and press Send"
+                                                                    } else {
+                                                                        "Start an agent first to enable replies"
+                                                                    }
+                                                                }
                                                                 class="message-input"
-                                                                disabled=true
+                                                                on:input=move |ev| set_message_input.set(event_target_value(&ev))
+                                                                prop:value=move || message_input.get()
+                                                                disabled={move || current_process_id.get().is_none() || !worktree_available || is_sending_message.get()}
                                                             />
-                                                            <button class="send-btn" disabled=true>"Send"</button>
+                                                            <button 
+                                                                class="send-btn"
+                                                                disabled={move || current_process_id.get().is_none() || !worktree_available || message_input.get().trim().is_empty() || is_sending_message.get()}
+                                                                on:click={
+                                                                    let current_process_id = current_process_id.clone();
+                                                                    let message_input = message_input.clone();
+                                                                    let set_message_input = set_message_input.clone();
+                                                                    let set_is_sending_message = set_is_sending_message.clone();
+                                                                    let set_current_process_id = set_current_process_id.clone();
+                                                                    let load_agent_messages = load_agent_messages.clone();
+                                                                    let worktree_opt = _task_worktree_path.clone();
+                                                                    move |_| {
+                                                                        if current_process_id.get().is_none() { return; }
+                                                                        if worktree_opt.is_none() { return; }
+                                                                        let pid = current_process_id.get().unwrap();
+                                                                        let worktree_path = worktree_opt.clone().unwrap();
+                                                                        let msg = message_input.get();
+                                                                        if msg.trim().is_empty() { return; }
+                                                                        set_is_sending_message.set(true);
+                                                                        let lam = load_agent_messages.clone();
+                                                                        spawn_local(async move {
+                                                                            let args = serde_json::json!({
+                                                                                "processId": pid,
+                                                                                "message": msg,
+                                                                                "worktreePath": worktree_path,
+                                                                            });
+                                                                            if let Ok(js_value) = to_value(&args) {
+                                                                                let resp = invoke("send_agent_message", js_value).await;
+                                                                                // Expect a new process_id string
+                                                                                if !resp.is_undefined() {
+                                                                                    if let Ok(new_pid) = serde_wasm_bindgen::from_value::<String>(resp) {
+                                                                                        set_current_process_id.set(Some(new_pid.clone()));
+                                                                                        // Clear input and load messages for the new process immediately
+                                                                                        set_message_input.set(String::new());
+                                                                                        lam(new_pid);
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            set_is_sending_message.set(false);
+                                                                        });
+                                                                    }
+                                                                }
+                                                            >
+                                                                "Send"
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 </div>

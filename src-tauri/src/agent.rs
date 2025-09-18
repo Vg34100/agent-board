@@ -33,6 +33,18 @@ pub struct AgentProcess {
     pub total_cost_usd: Option<f64>,
     pub num_turns: Option<i32>,
     pub worktree_path: String,
+    #[serde(default)]
+    pub kind: AgentKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentKind {
+    Claude,
+    Codex,
+}
+
+impl Default for AgentKind {
+    fn default() -> Self { AgentKind::Claude }
 }
 
 // Store for active child processes
@@ -129,6 +141,21 @@ fn split_json_objects(line: &str) -> Vec<String> {
     // If there's remaining content that doesn't form a complete JSON object, discard it
     // This handles malformed or incomplete JSON
     objects
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_json_objects;
+
+    #[test]
+    fn splits_multiple_json_objects_on_one_line() {
+        let input = r#"{"a":1}{"b":2}{"c":3}"#;
+        let objs = split_json_objects(input);
+        assert_eq!(objs.len(), 3);
+        assert_eq!(objs[0], "{\"a\":1}");
+        assert_eq!(objs[1], "{\"b\":2}");
+        assert_eq!(objs[2], "{\"c\":3}");
+    }
 }
 
 /// Parses Codex CLI JSONL events into AgentMessage based on actual Codex output format
@@ -725,9 +752,11 @@ pub fn spawn_claude_process(
                 let mut working_cmd = if command.ends_with(".cmd") {
                     // Important: call via cmd.exe to avoid Rust's .cmd escaping guard
                     let mut c = Command::new("cmd");
+                    // Sanitize prompt for cmd.exe: avoid literal newlines which can break argument parsing
+                    let prompt_arg = full_message.replace("\r\n", " ").replace('\n', " ");
                     c.arg("/C")
                     .arg(command) // "claude.cmd"
-                    .arg("-p").arg(&full_message)
+                    .arg("-p").arg(prompt_arg)
                     .arg("--output-format").arg("stream-json")
                     .arg("--verbose")
                     .arg("--permission-mode").arg("acceptEdits")
@@ -802,6 +831,7 @@ pub fn spawn_claude_process(
         total_cost_usd: None,
         num_turns: None,
         worktree_path: worktree_path.clone(),
+        kind: AgentKind::Claude,
     };
 
     // Store process before spawning
@@ -1080,7 +1110,7 @@ pub fn spawn_codex_process(
     task_id: String,
     initial_message: String,
     worktree_path: String,
-    _context: Option<String>,
+    context: Option<String>,
 ) -> Result<String, String> {
     let process_id = generate_process_id();
     println!("Spawning Codex process {} for task {}", process_id, task_id);
@@ -1255,6 +1285,7 @@ pub fn spawn_codex_process(
         total_cost_usd: None,
         num_turns: None,
         worktree_path: worktree_path.clone(),
+        kind: AgentKind::Codex,
     };
 
     {
@@ -1285,7 +1316,12 @@ pub fn spawn_codex_process(
             if let Some(stdin) = child.stdin.take() {
                 use std::io::Write;
                 let mut stdin_writer = stdin;
-                if let Err(e) = stdin_writer.write_all(initial_message.as_bytes()) {
+                let full_message = if let Some(ctx) = context {
+                    format!("Previous conversation:\n{}\n\nNew message: {}", ctx, initial_message)
+                } else {
+                    initial_message.clone()
+                };
+                if let Err(e) = stdin_writer.write_all(full_message.as_bytes()) {
                     println!("Failed to write prompt to Codex stdin: {}", e);
                 }
                 if let Err(e) = stdin_writer.write_all(b"\n") {
@@ -1528,35 +1564,41 @@ pub fn send_message_to_process(
     let processes = get_processes();
 
     // Get existing process and its context
-    let context = {
+    let (context, agent_kind, task_id) = {
         let map = processes.lock().unwrap();
         if let Some(proc) = map.get(process_id) {
             // Build context from existing messages
+            // Limit context to last 20 messages to avoid huge prompts
+            let take_last = 20usize;
+            let start = proc.messages.len().saturating_sub(take_last);
             let context_messages: Vec<String> = proc.messages.iter()
+                .skip(start)
                 .map(|msg| format!("{}: {}", msg.sender, msg.content))
                 .collect();
-            Some(context_messages.join("\n"))
+            let ctx = Some(context_messages.join("\n"));
+            (ctx, proc.kind.clone(), proc.task_id.clone())
         } else {
             return Err("Process not found".to_string());
         }
     };
 
-    // Get task_id from existing process
-    let task_id = {
-        let map = processes.lock().unwrap();
-        map.get(process_id)
-            .map(|proc| proc.task_id.clone())
-            .ok_or("Process not found")?
+    // Spawn new process with context, matching the agent kind used previously
+    let new_process_id = match agent_kind {
+        AgentKind::Claude => spawn_claude_process(
+            app,
+            task_id,
+            message,
+            worktree_path,
+            context,
+        )?,
+        AgentKind::Codex => spawn_codex_process(
+            app,
+            task_id,
+            message,
+            worktree_path,
+            context,
+        )?,
     };
-
-    // Spawn new process with context
-    let new_process_id = spawn_claude_process(
-        app,
-        task_id,
-        message,
-        worktree_path,
-        context,
-    )?;
 
     // Mark old process as completed
     {
@@ -1566,6 +1608,54 @@ pub fn send_message_to_process(
             proc.end_time = Some(get_timestamp());
         }
     }
+
+    Ok(new_process_id)
+}
+
+/// Sends a new message continuing from an existing process, but forcing a specific agent kind
+pub fn send_message_with_profile(
+    app: tauri::AppHandle,
+    base_process_id: &str,
+    message: String,
+    worktree_path: String,
+    profile: &str,
+) -> Result<String, String> {
+    let processes = get_processes();
+
+    // Build context from base process
+    let (context, task_id) = {
+        let map = processes.lock().unwrap();
+        if let Some(proc) = map.get(base_process_id) {
+            let take_last = 20usize;
+            let start = proc.messages.len().saturating_sub(take_last);
+            let context_messages: Vec<String> = proc.messages.iter()
+                .skip(start)
+                .map(|msg| format!("{}: {}", msg.sender, msg.content))
+                .collect();
+            (Some(context_messages.join("\n")), proc.task_id.clone())
+        } else {
+            return Err("Process not found".to_string());
+        }
+    };
+
+    // Map profile to AgentKind
+    let which = profile.trim().to_lowercase();
+    let new_process_id = match which.as_str() {
+        "codex" | "chat-codex" | "chatgpt-codex" => spawn_codex_process(
+            app,
+            task_id,
+            message,
+            worktree_path,
+            context,
+        )?,
+        _ => spawn_claude_process(
+            app,
+            task_id,
+            message,
+            worktree_path,
+            context,
+        )?,
+    };
 
     Ok(new_process_id)
 }
