@@ -433,6 +433,28 @@ async fn send_agent_message(
     agent::send_message_to_process(app, &process_id, message, worktree_path)
 }
 
+// Per-process agent messages persistence
+#[tauri::command]
+async fn load_process_agent_messages(app: tauri::AppHandle, task_id: String, process_id: String) -> Result<Vec<agent::AgentMessage>, String> {
+    let file = format!("agent_messages_{}_{}.json", task_id, process_id);
+    let store = app.store(&file).map_err(|e| e.to_string())?;
+    if let Some(val) = store.get("messages") {
+        serde_json::from_value::<Vec<agent::AgentMessage>>(val.clone()).map_err(|e| e.to_string())
+    } else {
+        Ok(vec![])
+    }
+}
+
+#[tauri::command]
+async fn save_process_agent_messages(app: tauri::AppHandle, task_id: String, process_id: String, messages: Vec<agent::AgentMessage>) -> Result<String, String> {
+    let file = format!("agent_messages_{}_{}.json", task_id, process_id);
+    let store = app.store(&file).map_err(|e| e.to_string())?;
+    let val = serde_json::to_value(&messages).map_err(|e| e.to_string())?;
+    store.set("messages", val);
+    store.save().map_err(|e| e.to_string())?;
+    Ok("Process agent messages saved".to_string())
+}
+
 #[tauri::command]
 async fn send_agent_message_with_profile(
     app: tauri::AppHandle,
@@ -480,7 +502,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, send_agent_message_with_profile, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_agent_processes, save_agent_processes, is_dev_mode])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, send_agent_message_with_profile, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_process_agent_messages, save_process_agent_messages, load_agent_processes, save_agent_processes, is_dev_mode])
         .setup(|app| {
             // Bind to preferred fixed port, with fallback to a random high port if occupied
             let listener = match std::net::TcpListener::bind(("0.0.0.0", 17872)) {

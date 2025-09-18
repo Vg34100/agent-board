@@ -585,6 +585,32 @@ async fn invoke(State(state): State<WebState>, Json(req): Json<InvokeReq>) -> im
                 }
             } else { json!("Missing taskId/messages") }
         }
+        "load_process_agent_messages" => {
+            if let (Some(task_id), Some(process_id)) = (
+                str_arg_from(&args, &["taskId", "task_id"]),
+                str_arg_from(&args, &["processId", "process_id"]) ,
+            ) {
+                match load_process_agent_messages(app.clone(), task_id, process_id).await {
+                    Ok(v) => json!(v),
+                    Err(_) => json!([]),
+                }
+            } else { json!([]) }
+        }
+        "save_process_agent_messages" => {
+            if let (Some(task_id), Some(process_id), Some(messages_val)) = (
+                str_arg_from(&args, &["taskId", "task_id"]),
+                str_arg_from(&args, &["processId", "process_id"]) ,
+                args.get("messages"),
+            ) {
+                match serde_json::from_value(messages_val.clone()) {
+                    Ok(messages) => match save_process_agent_messages(app.clone(), task_id, process_id, messages).await {
+                        Ok(v) => json!(v),
+                        Err(e) => json!(e),
+                    },
+                    Err(_) => json!("Invalid messages"),
+                }
+            } else { json!("Missing taskId/processId/messages") }
+        }
         "load_agent_processes" => match load_agent_processes(app.clone()).await {
             Ok(v) => json!(v),
             Err(_) => json!([]),

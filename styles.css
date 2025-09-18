@@ -1762,6 +1762,19 @@ body {
   text-align: left;
 }
 
+.old-agents-view { display: none; }
+
+/* Diff styling */
+.diff-message { background: #252525; border: 1px solid #444; }
+.diff-header { background: #2c2c2c; padding: 6px 8px; font-family: inherit; border-bottom: 1px solid #444; }
+.diff-lines { padding: 8px; }
+.diff-lines pre { margin: 0; padding: 2px 6px; border-radius: 2px; }
+.diff-hunk { background: #333; color: #ddd; }
+.diff-file { background: #333; color: #aaa; }
+.diff-add { background: #143d14; color: #8dffa8; }
+.diff-rem { background: #4a1a1a; color: #ff9a9a; }
+.diff-ctx { background: #2a2a2a; color: #ccc; }
+
 /* Process chips */
 .process-chips {
   display: flex;
@@ -1780,6 +1793,46 @@ body {
 .process-chip.active { border-color: #4a9eff; color: #e0e0e0; }
 .process-chip .kind { color: #666; font-style: italic; margin-left: 4px; }
 
+/* Vertical process group styling */
+.process-groups details {
+  border: 1px solid #333;
+  margin-bottom: 8px;
+  background: #222;
+}
+.process-groups summary.process-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: #252525;
+  border-bottom: 1px solid #333;
+}
+.proc-kind {
+  background: #1f3a5c;
+  color: #9ac7ff;
+  border: 1px solid #2e4d73;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.proc-id {
+  color: #ccc;
+  font-family: inherit;
+}
+.proc-status {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  border: 1px solid #444;
+  color: #aaa;
+}
+.proc-status.running { color: #00d4aa; border-color: #008e72; }
+.proc-status.completed { color: #4a9eff; border-color: #2e5f85; }
+.proc-status.failed { color: #ff6b6b; border-color: #a33; }
+
 .message.system {
   border-left: 3px solid #ff6b35;
 }
@@ -1793,6 +1846,31 @@ body {
 
 .message-icon {
   font-size: 14px;
+}
+
+.message-content {
+  overflow-x: hidden;
+}
+
+.diff-message {
+  width: 100%;
+}
+
+.diff-lines pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.proc-code {
+  margin-left: 6px;
+  font-size: 10px;
+  color: #888;
+  background: #1b1b1b;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 1px 4px;
 }
 
 .sender {

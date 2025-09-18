@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use crate::models::{Task, TaskStatus, AgentProfile};
 use std::rc::Rc;
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
@@ -49,14 +50,16 @@ pub fn TaskSidebar(
 ) -> impl IntoView {
     // State for showing/hiding full description
     let (show_full_description, set_show_full_description) = signal(false);
-    
+
     // Agent process state
     let (agent_messages, set_agent_messages) = signal(Vec::<AgentMessage>::new());
     let (all_processes, set_all_processes) = signal(Vec::<serde_json::Value>::new());
     let (current_process_id, set_current_process_id) = signal(Option::<String>::None);
+    // Messages per process id so multiple groups can render simultaneously
+    let (messages_by_process, set_messages_by_process) = signal(HashMap::<String, Vec<AgentMessage>>::new());
     let (message_input, set_message_input) = signal(String::new());
     let (is_sending_message, set_is_sending_message) = signal(false);
-    
+
     // Clone task data for use in closures
     let task_title = task.title.clone();
     let task_description = task.description.clone();
@@ -64,7 +67,7 @@ pub fn TaskSidebar(
     let task_id = task.id.clone();
     let _task_worktree_path = task.worktree_path.clone();
     let worktree_available = _task_worktree_path.is_some();
-    
+
     // Local selected profile (default from task)
     let (selected_profile, set_selected_profile) = signal(task.profile.clone());
 
@@ -95,7 +98,7 @@ pub fn TaskSidebar(
 
     // Determine if description is long (more than 5 lines approximately)
     let description_is_long = task_description.len() > 200; // Rough estimate
-    
+
     // Get display description based on show_full state
     let get_display_description = move || {
         if description_is_long && !show_full_description.get() {
@@ -109,6 +112,26 @@ pub fn TaskSidebar(
         selected_task.set(None);
     };
 
+    // Helper: sticky scroll to bottom for a container id
+    fn scroll_to_bottom(id: &str) {
+        if let Some(window) = web_sys::window() {
+            if let Some(doc) = window.document() {
+                if let Some(el) = doc.get_element_by_id(id) {
+                    use wasm_bindgen::JsCast;
+                    if let Ok(div) = el.dyn_into::<web_sys::HtmlElement>() {
+                        let scroll_top = div.scroll_top() as f64;
+                        let client_height = div.client_height() as f64;
+                        let scroll_height = div.scroll_height() as f64;
+                        let gap = scroll_height - (scroll_top + client_height);
+                        if gap < 180.0 {
+                            div.set_scroll_top(scroll_height as i32);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Load agent messages for current process with force refresh
     let load_agent_messages = {
         let set_agent_messages = set_agent_messages.clone();
@@ -116,6 +139,8 @@ pub fn TaskSidebar(
         move |process_id: String| {
             let set_agent_messages = set_agent_messages.clone();
             let task_id_for_save = task_id_for_save.clone();
+            let set_messages_by_process = set_messages_by_process.clone();
+            let pid_for_map = process_id.clone();
             spawn_local(async move {
                 let args = serde_json::json!({ "processId": process_id });
                 if let Ok(js_value) = to_value(&args) {
@@ -128,34 +153,44 @@ pub fn TaskSidebar(
                                     current.extend(messages.clone());
                                 });
 
-                                // Persist the freshly loaded messages for this task immediately
-                                let save_args = serde_json::json!({
+                                // Store into per-process map so groups can show simultaneously
+                                set_messages_by_process.update(|map| {
+                                    map.insert(pid_for_map.clone(), messages.clone());
+                                });
+
+                                // Persist per-process and task-level snapshots
+                                let save_proc_args = serde_json::json!({
+                                    "taskId": task_id_for_save,
+                                    "processId": pid_for_map,
+                                    "messages": messages,
+                                });
+                                if let Ok(save_proc_js) = serde_wasm_bindgen::to_value(&save_proc_args) {
+                                    let _ = invoke("save_process_agent_messages", save_proc_js).await;
+                                }
+                                let save_task_args = serde_json::json!({
                                     "taskId": task_id_for_save,
                                     "messages": messages,
                                 });
-                                if let Ok(save_js) = serde_wasm_bindgen::to_value(&save_args) {
-                                    let _ = invoke("save_task_agent_messages", save_js).await;
+                                if let Ok(save_task_js) = serde_wasm_bindgen::to_value(&save_task_args) {
+                                    let _ = invoke("save_task_agent_messages", save_task_js).await;
                                 }
 
-                                // Sticky-scroll: if user is near bottom, keep them at the bottom
-                                if let Some(window) = web_sys::window() {
-                                    if let Some(doc) = window.document() {
-                                        // Scroll the actual scroll container (.agent-sessions), not just the inner content
-                                        let container_id = format!("agent-sessions-{}", task_id_for_save);
-                                        if let Some(el) = doc.get_element_by_id(&container_id) {
-                                            use wasm_bindgen::JsCast;
-                                            if let Ok(div) = el.dyn_into::<web_sys::HtmlElement>() {
-                                                let scroll_top = div.scroll_top() as f64;
-                                                let client_height = div.client_height() as f64;
-                                                let scroll_height = div.scroll_height() as f64;
-                                                let gap = scroll_height - (scroll_top + client_height);
-                                                if gap < 120.0 {
-                                                    div.set_scroll_top(scroll_height as i32);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                // Sticky-scroll attempts: outer sessions and inner message list
+                                let outer_id = format!("agent-sessions-{}", task_id_for_save);
+                                let inner_id = format!("agent-messages-{}", pid_for_map);
+                                scroll_to_bottom(&outer_id);
+                                scroll_to_bottom(&inner_id);
+                                // Schedule additional scrolls to handle late reflow (e.g., long diffs)
+                                let outer_id2 = outer_id.clone();
+                                let inner_id2 = inner_id.clone();
+                                spawn_local(async move {
+                                    gloo_timers::future::TimeoutFuture::new(32).await;
+                                    scroll_to_bottom(&outer_id2);
+                                    scroll_to_bottom(&inner_id2);
+                                    gloo_timers::future::TimeoutFuture::new(160).await;
+                                    scroll_to_bottom(&outer_id2);
+                                    scroll_to_bottom(&inner_id2);
+                                });
                             }
                         }
                         _ => {}
@@ -180,14 +215,14 @@ pub fn TaskSidebar(
                     }
                     _ => {}
                 }
-                
+
                 // Also load persisted processes
                 match invoke("load_agent_processes", serde_wasm_bindgen::to_value(&serde_json::json!({})).unwrap()).await {
                     js_result if !js_result.is_undefined() => {
                         if let Ok(persisted_processes) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
                             // Merge persisted processes with current ones (current processes take priority)
                             let mut merged_processes = current_processes.clone();
-                            
+
                             for persisted in persisted_processes {
                                 let persisted_id = persisted.get("id").and_then(|v| v.as_str()).unwrap_or("");
                                 // Only add persisted process if it's not already in current processes
@@ -197,9 +232,9 @@ pub fn TaskSidebar(
                                     merged_processes.push(persisted);
                                 }
                             }
-                            
+
                             set_all_processes.set(merged_processes.clone());
-                            
+
                             // Save the merged list back to store for persistence
                             let save_args = serde_json::json!({ "processes": merged_processes });
                             if let Ok(js_value) = serde_wasm_bindgen::to_value(&save_args) {
@@ -227,10 +262,55 @@ pub fn TaskSidebar(
         });
     }
 
-    // Load persisted agent messages for this task once
+    // Ensure messages for this task's processes are loaded from persisted store on startup
+    {
+        let task_id_for_effect = task.id.clone();
+        let set_messages_by_process_effect = set_messages_by_process.clone();
+        let set_agent_messages_effect = set_agent_messages.clone();
+        Effect::new(move |_| {
+            let procs = all_processes.get();
+            let map_now = messages_by_process.get();
+            for p in procs.iter().filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task_id_for_effect)) {
+                if let Some(pid) = p.get("id").and_then(|v| v.as_str()) {
+                    if !map_now.contains_key(pid) {
+                        // Load from persisted per-process store
+                        let pid_s = pid.to_string();
+                        let task_id_arg = task_id_for_effect.clone();
+                        let set_map = set_messages_by_process_effect.clone();
+                        let set_current = set_agent_messages_effect.clone();
+                        spawn_local(async move {
+                            let args = serde_json::json!({ "taskId": task_id_arg, "processId": pid_s });
+                            if let Ok(jsv) = serde_wasm_bindgen::to_value(&args) {
+                                let resp = invoke("load_process_agent_messages", jsv).await;
+                                if !resp.is_undefined() {
+                                    if let Ok(stored) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(resp) {
+                                        if !stored.is_empty() {
+                                            let pid_for_map = pid_s.clone();
+                                            set_map.update(|m| { m.insert(pid_for_map.clone(), stored.clone()); });
+                                            // If this process is active, also reflect into set_agent_messages
+                                            set_current.set(stored);
+                                            // Sticky scroll after hydration
+                                            let outer_id = format!("agent-sessions-{}", task_id_arg);
+                                            let inner_id = format!("agent-messages-{}", pid_for_map);
+                                            scroll_to_bottom(&outer_id);
+                                            scroll_to_bottom(&inner_id);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    // Load persisted agent messages for this task once and seed the latest process group
     {
         let task_id_for_persist = task.id.clone();
         let set_agent_messages_for_persist = set_agent_messages.clone();
+        let all_processes_sig = all_processes.clone();
+        let set_messages_by_process_sig = set_messages_by_process.clone();
         spawn_local(async move {
             let args = serde_json::json!({ "taskId": task_id_for_persist });
             if let Ok(js_value) = serde_wasm_bindgen::to_value(&args) {
@@ -238,32 +318,53 @@ pub fn TaskSidebar(
                 if !resp.is_undefined() {
                     if let Ok(persisted) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(resp) {
                         if !persisted.is_empty() {
-                            set_agent_messages_for_persist.set(persisted);
+                            set_agent_messages_for_persist.set(persisted.clone());
+                            // Seed per-process from persisted per-process store if available
+                            let procs = all_processes_sig.get_untracked();
+                            for p in procs.iter().filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task_id_for_persist)) {
+                                if let Some(pid) = p.get("id").and_then(|v| v.as_str()) {
+                                    let args2 = serde_json::json!({ "taskId": task_id_for_persist, "processId": pid });
+                                    if let Ok(js2) = serde_wasm_bindgen::to_value(&args2) {
+                                        let resp2 = invoke("load_process_agent_messages", js2).await;
+                                        if !resp2.is_undefined() {
+                                            if let Ok(per_proc) = serde_wasm_bindgen::from_value::<Vec<AgentMessage>>(resp2) {
+                                                if !per_proc.is_empty() {
+                                                    set_messages_by_process_sig.update(|m| { m.insert(pid.to_string(), per_proc); });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         });
     }
-    
+
     // Auto-detect active process on initial load
     {
         let task_id = task.id.clone();
         let set_current_process_id = set_current_process_id.clone();
         let load_agent_messages = load_agent_messages.clone();
-        
+
         // Initial process detection
         spawn_local(async move {
-            // Check for active processes for this task
+            // Check for active processes for this task and select the newest by start_time
             let args = serde_json::json!({});
             if let Ok(js_value) = to_value(&args) {
                 match invoke("get_process_list", js_value).await {
                     js_result if !js_result.is_undefined() => {
                         if let Ok(processes) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
-                            // Find the latest process for this task
-                            if let Some(proc) = processes.iter()
-                                .filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task_id))
-                                .last() {
+                            // Find the latest process for this task by start_time (RFC3339 string; lexicographically sortable)
+                            let mut latest: Option<serde_json::Value> = None;
+                            for p in processes.iter().filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task_id)) {
+                                let ts = p.get("start_time").and_then(|v| v.as_str()).unwrap_or("");
+                                let lt = latest.as_ref().and_then(|lp| lp.get("start_time").and_then(|v| v.as_str())).unwrap_or("");
+                                if ts >= lt { latest = Some(p.clone()); }
+                            }
+                            if let Some(proc) = latest {
                                 if let Some(process_id) = proc.get("id").and_then(|v| v.as_str()) {
                                     set_current_process_id.set(Some(process_id.to_string()));
                                     load_agent_messages(process_id.to_string());
@@ -275,16 +376,16 @@ pub fn TaskSidebar(
                 }
             }
         });
-        
+
         // Timer-based polling removed - now using event-driven updates only
     }
-    
+
     // Set up Tauri event listener for real-time updates
     {
         let task_id_for_events = task.id.clone();
         let load_agent_messages_for_events = load_agent_messages.clone();
         let set_current_process_id_for_events = set_current_process_id.clone();
-        
+
         spawn_local(async move {
             // Listen for agent message update events AND process status updates
             // Prefer our HTTP-safe SSE bridge to avoid native Tauri permission errors on http:// origins
@@ -292,7 +393,7 @@ pub fn TaskSidebar(
                 "eventName,handler",
                 "if (window.AGENT_EVENT_LISTEN) { return window.AGENT_EVENT_LISTEN(eventName, handler); } else { return window.__TAURI__.event.listen(eventName, handler); }"
             );
-            
+
             // Handler for message updates
             let task_id_msg = task_id_for_events.clone();
             let load_msg = load_agent_messages_for_events.clone();
@@ -319,8 +420,8 @@ pub fn TaskSidebar(
                     }
                 }
             }) as Box<dyn FnMut(JsValue)>);
-            
-            // Handler for process status updates  
+
+            // Handler for process status updates
             let task_id_status = task_id_for_events.clone();
             let load_status = load_agent_messages_for_events.clone();
             let set_id_status = set_current_process_id_for_events.clone();
@@ -343,7 +444,7 @@ pub fn TaskSidebar(
                                     load_status(process_id.to_string());
                                     // CRITICAL: Also refresh process list to trigger UI re-render
                                     load_all_processes_for_status();
-                                    
+
                                     // Save processes to store for persistence
                                     let processes_for_save = all_processes.get_untracked();
                                     let save_args = serde_json::json!({ "processes": processes_for_save });
@@ -358,20 +459,20 @@ pub fn TaskSidebar(
                     }
                 }
             }) as Box<dyn FnMut(JsValue)>);
-            
+
             // Set up both listeners
             let _ = listen_js.call2(
                 &JsValue::NULL,
                 &JsValue::from_str("agent_message_update"),
                 message_handler.as_ref().unchecked_ref()
             );
-            
+
             let _ = listen_js.call2(
                 &JsValue::NULL,
                 &JsValue::from_str("agent_process_status"),
                 status_handler.as_ref().unchecked_ref()
             );
-            
+
             // Keep the closures alive
             message_handler.forget();
             status_handler.forget();
@@ -384,8 +485,8 @@ pub fn TaskSidebar(
             <div class="sidebar-header">
                 <h2>{task_title.clone()}</h2>
                 <div class="header-actions">
-                    <button 
-                        class="action-btn edit-btn" 
+                    <button
+                        class="action-btn edit-btn"
                         title="Edit Task"
                         on:click={
                             let task_for_edit = task.clone();
@@ -394,8 +495,8 @@ pub fn TaskSidebar(
                             }
                         }
                     >"✎"</button>
-                    <button 
-                        class="action-btn cancel-btn" 
+                    <button
+                        class="action-btn cancel-btn"
                         title="Move to Cancelled"
                         on:click={
                             let task_id_for_cancel = task_id.clone();
@@ -405,8 +506,8 @@ pub fn TaskSidebar(
                             }
                         }
                     >"⚠"</button>
-                    <button 
-                        class="action-btn delete-btn" 
+                    <button
+                        class="action-btn delete-btn"
                         title="Delete Task"
                         on:click={
                             let task_id_for_delete = task_id.clone();
@@ -420,7 +521,7 @@ pub fn TaskSidebar(
                     <button class="sidebar-close" on:click=close_sidebar>"×"</button>
                 </div>
             </div>
-            
+
             {/* Task Details Section */}
             <div class="sidebar-content">
                 <div class="task-details">
@@ -429,7 +530,7 @@ pub fn TaskSidebar(
                         <div class="task-description">
                             <p>{get_display_description}</p>
                             {description_is_long.then(|| view! {
-                                <button 
+                                <button
                                     class="show-more-btn"
                                     on:click=move |_| set_show_full_description.update(|show| *show = !*show)
                                 >
@@ -438,7 +539,7 @@ pub fn TaskSidebar(
                             })}
                         </div>
                     </div>
-                    
+
                     {/* Status-Dependent Section */}
                     <div class="status-section">
                         {match task_status {
@@ -474,7 +575,7 @@ pub fn TaskSidebar(
                                                 <option value="focused">"Focused"</option>
                                             </select>
                                         </div>
-                                        <button 
+                                        <button
                                             class="start-btn"
                                             on:click={
                                                 let task_id_for_start = task_id.clone();
@@ -498,14 +599,14 @@ pub fn TaskSidebar(
                                         <span class="diff-info">"Diffs: " <span class="diff-added">"+0"</span> " " <span class="diff-removed">"-0"</span></span>
                                     </div>
                                 </div>
-                                
+
                                 {/* Worktree Actions - Only show for tasks with worktree, outside the attempt block */}
                                 {task.worktree_path.as_ref().map(|worktree_path| {
                                     let worktree_path_for_files = worktree_path.clone();
                                     let worktree_path_for_ide = worktree_path.clone();
                                     view! {
                                         <div class="worktree-actions">
-                                            <button 
+                                            <button
                                                 class="action-btn files-btn"
                                                 title="Open Files in Explorer"
                                                 on:click={
@@ -519,7 +620,7 @@ pub fn TaskSidebar(
                                             >
                                                 "🖿"
                                             </button>
-                                            <button 
+                                            <button
                                                 class="action-btn ide-btn"
                                                 title="Open in VS Code"
                                                 on:click={
@@ -533,23 +634,23 @@ pub fn TaskSidebar(
                                             >
                                                 "🟐"
                                             </button>
-                                            
+
                                             {/* Git Actions - TODO: Implement functionality */}
-                                            <button 
+                                            <button
                                                 class="action-btn pr-btn"
                                                 title="Create Pull Request (disables worktree)"
                                                 disabled=true
                                             >
                                                 "🡽" {/* Alternative: 🞑 */}
                                             </button>
-                                            <button 
+                                            <button
                                                 class="action-btn merge-btn"
                                                 title="Merge to Main"
                                                 disabled=true
                                             >
                                                 "🡺" {/* Alternative: 🞈 */}
                                             </button>
-                                            <button 
+                                            <button
                                                 class="action-btn rebase-btn"
                                                 title="Rebase (Interactive)"
                                                 disabled=true
@@ -563,19 +664,19 @@ pub fn TaskSidebar(
                         }}
                     </div>
                 </div>
-                
+
                 {/* Tabbed Interface - Only show for non-TODO statuses */}
                 {match task_status {
                     TaskStatus::ToDo => view! {}.into_any(),
                     _ => {
                         // Tab state management
                         let (active_tab, set_active_tab) = signal("agents".to_string());
-                        
+
                         view! {
                             <div class="tabbed-interface">
                                 {/* Tab Headers */}
                                 <div class="tab-headers">
-                                    <button 
+                                    <button
                                         class=move || format!("tab-header {}", if active_tab.get() == "agents" { "active" } else { "" })
                                         on:click={
                                             let set_active_tab = set_active_tab.clone();
@@ -607,11 +708,11 @@ pub fn TaskSidebar(
                                             }
                                         }
                                     >"Agents"</button>
-                                    <button 
+                                    <button
                                         class=move || format!("tab-header {}", if active_tab.get() == "diff" { "active" } else { "" })
                                         on:click=move |_| set_active_tab.set("diff".to_string())
                                     >"Diff"</button>
-                                    <button 
+                                    <button
                                         class=move || format!("tab-header {}", if active_tab.get() == "processes" { "active" } else { "" })
                                         on:click={
                                             let set_active_tab = set_active_tab.clone();
@@ -624,24 +725,24 @@ pub fn TaskSidebar(
                                         }
                                     >"Processes"</button>
                                 </div>
-                                
+
                                 {/* Tab Content */}
                                 <div class="tab-content">
-                                    {move || match active_tab.get().as_str() {
+                                    { move || { let task_id_for_closure = task_id.clone(); match active_tab.get().as_str() {
                                         "agents" => {
                                             let messages = agent_messages.get();
                                             let processes = all_processes.get();
                                             let has_messages = !messages.is_empty();
-                                            
+
                                             // Check if there are any processes for this task
                                             let current_task_processes: Vec<_> = processes.iter()
                                                 .filter(|proc| proc.get("task_id").and_then(|v| v.as_str()) == Some(&task.id))
                                                 .collect();
-                                            
+
                                             let has_processes = !current_task_processes.is_empty();
                                             let latest_process_status = current_task_processes.last()
                                                 .and_then(|proc| proc.get("status").and_then(|v| v.as_str()));
-                                            
+
                                             // Compact process chips for quick switching
                                             let chips = current_task_processes.iter().map(|proc| {
                                                 let pid = proc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -661,8 +762,17 @@ pub fn TaskSidebar(
 
                                             view! {
                                                 <div class="agents-tab">
-                                                    <div class="process-chips">{chips}</div>
-                                                    <div class="agent-sessions" id={format!("agent-sessions-{}", task_id.clone())}>
+                                                    <crate::components::agents::AgentsPanel
+                                                        task_id=task_id_for_closure.clone()
+                                                        processes=all_processes.get()
+                                                        messages_by_process=messages_by_process
+                                                        on_load_messages={
+                                                            let loader = load_agent_messages.clone();
+                                                            std::rc::Rc::new(move |pid: String| { loader(pid); })
+                                                        }
+                                                        active_process_id=current_process_id
+                                                     />
+                                                        /* <div class="old-agents-view">
                                                         {if !has_processes {
                                                             // No processes started yet
                                                             view! {
@@ -692,7 +802,7 @@ pub fn TaskSidebar(
                                                                                     // Group agent_reasoning messages together
                                                                                     let mut processed_messages = Vec::new();
                                                                                     let mut reasoning_messages = Vec::new();
-                                                                                    
+
                                                                                     for msg in messages.into_iter().filter(|msg| !(msg.sender == "system" && msg.content.trim().is_empty())) {
                                                                                         if msg.message_type == "agent_reasoning" {
                                                                                             reasoning_messages.push(msg);
@@ -707,7 +817,7 @@ pub fn TaskSidebar(
                                                                                                         m.content.clone()
                                                                                                     }
                                                                                                 }).unwrap_or_default();
-                                                                                                
+
                                                                                                 let reasoning_details = reasoning_messages.clone();
                                                                                                 processed_messages.push(view! {
                                                                                                     <div class="message agent reasoning-group">
@@ -734,7 +844,7 @@ pub fn TaskSidebar(
                                                                                                 }.into_any());
                                                                                                 reasoning_messages.clear();
                                                                                             }
-                                                                                            
+
                                                                                             // Add the current non-reasoning message
                                                                                             let icon = match msg.sender.as_str() {
                                                                                                 "user" => "👤",
@@ -750,9 +860,9 @@ pub fn TaskSidebar(
                                                                                                 "system" => "🔧",
                                                                                                 _ => "💬"
                                                                                             };
-                                                                                            
+
                                                                                             let message_class = format!("message {}", msg.sender);
-                                                                                            
+
                                                                                             processed_messages.push(view! {
                                                                                                 <div class=message_class>
                                                                                                     <div class="message-header">
@@ -767,11 +877,21 @@ pub fn TaskSidebar(
                                                                                                             let content_parts: Vec<&str> = content_clone.split("\n\n").collect();
                                                                                                             if content_parts.len() >= 2 {
                                                                                                                 let header = content_parts[0].to_string();
-                                                                                                                let diff_body = content_parts[1..].join("\n\n");
+                                                                                                                let lines: Vec<String> = content_parts[1..].join("\n\n").lines().map(|s| s.to_string()).collect();
                                                                                                                 view! {
                                                                                                                     <div class="diff-message">
                                                                                                                         <div class="diff-header">{header}</div>
-                                                                                                                        <pre class="diff-content">{diff_body}</pre>
+                                                                                                                        <div class="diff-lines">
+                                                                                                                            {lines.into_iter().map(|l| {
+                                                                                                                                let (cls, text) = if l.starts_with("+++") || l.starts_with("---") { ("diff-file", l) }
+                                                                                                                                else if l.starts_with("@@") { ("diff-hunk", l) }
+                                                                                                                                else if l.starts_with('+') { ("diff-add", l) }
+                                                                                                                                else if l.starts_with('-') { ("diff-rem", l) }
+                                                                                                                                else { ("diff-ctx", l) };
+                                                                                                                                let class = cls.to_string();
+                                                                                                                                view! { <pre class=class>{text}</pre> }
+                                                                                                                            }).collect::<Vec<_>>()}
+                                                                                                                        </div>
                                                                                                                     </div>
                                                                                                                 }.into_any()
                                                                                                             } else {
@@ -779,13 +899,11 @@ pub fn TaskSidebar(
                                                                                                             }
                                                                                                         } else {
                                                                                                             view! { <div>{msg.content.clone()}</div> }.into_any()
-                                                                                                        }}
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            }.into_any());
+                                                        }}
+                                                        </div>
                                                                                         }
                                                                                     }
-                                                                                    
+
                                                                                     // Don't forget any remaining reasoning messages at the end
                                                                                     if !reasoning_messages.is_empty() {
                                                                                         let reasoning_count = reasoning_messages.len();
@@ -796,7 +914,7 @@ pub fn TaskSidebar(
                                                                                                 m.content.clone()
                                                                                             }
                                                                                         }).unwrap_or_default();
-                                                                                        
+
                                                                                         let reasoning_details = reasoning_messages.clone();
                                                                                         processed_messages.push(view! {
                                                                                             <div class="message agent reasoning-group">
@@ -822,7 +940,7 @@ pub fn TaskSidebar(
                                                                                             </div>
                                                                                         }.into_any());
                                                                                     }
-                                                                                    
+
                                                                                     processed_messages
                                                                                 }
                                                                             </div>
@@ -860,7 +978,7 @@ pub fn TaskSidebar(
                                                                                             // Group agent_reasoning messages together for completed status too
                                                                                             let mut processed_messages = Vec::new();
                                                                                             let mut reasoning_messages = Vec::new();
-                                                                                            
+
                                                                                             for msg in messages.into_iter().filter(|msg| !(msg.sender == "system" && msg.content.trim().is_empty())) {
                                                                                                 if msg.message_type == "agent_reasoning" {
                                                                                                     reasoning_messages.push(msg);
@@ -875,7 +993,7 @@ pub fn TaskSidebar(
                                                                                                                 m.content.clone()
                                                                                                             }
                                                                                                         }).unwrap_or_default();
-                                                                                                        
+
                                                                                                         let reasoning_details = reasoning_messages.clone();
                                                                                                         processed_messages.push(view! {
                                                                                                             <div class="message agent reasoning-group">
@@ -902,7 +1020,7 @@ pub fn TaskSidebar(
                                                                                                         }.into_any());
                                                                                                         reasoning_messages.clear();
                                                                                                     }
-                                                                                                    
+
                                                                                                     // Add the current non-reasoning message
                                                                                                     let icon = match msg.sender.as_str() {
                                                                                                         "user" => "👤",
@@ -918,9 +1036,9 @@ pub fn TaskSidebar(
                                                                                                         "system" => "🔧",
                                                                                                         _ => "💬"
                                                                                                     };
-                                                                                                    
+
                                                                                                     let message_class = format!("message {}", msg.sender);
-                                                                                                    
+
                                                                                                     processed_messages.push(view! {
                                                                                                         <div class=message_class>
                                                                                                             <div class="message-header">
@@ -934,14 +1052,24 @@ pub fn TaskSidebar(
                                                                                                                     let content_clone = msg.content.clone();
                                                                                                                     let content_parts: Vec<&str> = content_clone.split("\n\n").collect();
                                                                                                                     if content_parts.len() >= 2 {
-                                                                                                                        let header = content_parts[0].to_string();
-                                                                                                                        let diff_body = content_parts[1..].join("\n\n");
-                                                                                                                        view! {
-                                                                                                                            <div class="diff-message">
-                                                                                                                                <div class="diff-header">{header}</div>
-                                                                                                                                <pre class="diff-content">{diff_body}</pre>
-                                                                                                                            </div>
-                                                                                                                        }.into_any()
+                                                                                                                         let header = content_parts[0].to_string();
+                                                                                                                         let lines: Vec<String> = content_parts[1..].join("\n\n").lines().map(|s| s.to_string()).collect();
+                                                                                                                         view! {
+                                                                                                                             <div class="diff-message">
+                                                                                                                                 <div class="diff-header">{header}</div>
+                                                                                                                                 <div class="diff-lines">
+                                                                                                                                     {lines.into_iter().map(|l| {
+                                                                                                                                         let (cls, text) = if l.starts_with("+++") || l.starts_with("---") { ("diff-file", l) }
+                                                                                                                                         else if l.starts_with("@@") { ("diff-hunk", l) }
+                                                                                                                                         else if l.starts_with('+') { ("diff-add", l) }
+                                                                                                                                         else if l.starts_with('-') { ("diff-rem", l) }
+                                                                                                                                         else { ("diff-ctx", l) };
+                                                                                                                                         let class = cls.to_string();
+                                                                                                                                         view! { <pre class=class>{text}</pre> }
+                                                                                                                                     }).collect::<Vec<_>>()}
+                                                                                                                                 </div>
+                                                                                                                             </div>
+                                                                                                                         }.into_any()
                                                                                                                     } else {
                                                                                                                         view! { <div>{msg.content.clone()}</div> }.into_any()
                                                                                                                     }
@@ -953,7 +1081,7 @@ pub fn TaskSidebar(
                                                                                                     }.into_any());
                                                                                                 }
                                                                                             }
-                                                                                            
+
                                                                                             // Don't forget any remaining reasoning messages at the end
                                                                                             if !reasoning_messages.is_empty() {
                                                                                                 let reasoning_count = reasoning_messages.len();
@@ -964,7 +1092,7 @@ pub fn TaskSidebar(
                                                                                                         m.content.clone()
                                                                                                     }
                                                                                                 }).unwrap_or_default();
-                                                                                                
+
                                                                                                 let reasoning_details = reasoning_messages.clone();
                                                                                                 processed_messages.push(view! {
                                                                                                     <div class="message agent reasoning-group">
@@ -990,7 +1118,7 @@ pub fn TaskSidebar(
                                                                                                     </div>
                                                                                                 }.into_any());
                                                                                             }
-                                                                                            
+
                                                                                             processed_messages
                                                                                         }
                                                                                     </div>
@@ -1019,7 +1147,9 @@ pub fn TaskSidebar(
                                                             }.into_any()
                                                         }}
                                                     </div>
-                                                    
+
+                                                    </div>
+                                                        */
                                                     {/* Chat Input */}
                                                     <div class="chat-input-section">
                                                         <div class="input-container">
@@ -1029,8 +1159,8 @@ pub fn TaskSidebar(
                                                                     AgentProfile::Codex => "Codex",
                                                                 }}
                                                             </button>
-                                                            <input 
-                                                                type="text" 
+                                                            <input
+                                                                type="text"
                                                                 placeholder={
                                                                     if current_process_id.get().is_some() && worktree_available {
                                                                         "Type a reply and press Send"
@@ -1047,7 +1177,9 @@ pub fn TaskSidebar(
                                                                     let set_is_sending_message = set_is_sending_message.clone();
                                                                     let set_current_process_id = set_current_process_id.clone();
                                                                     let load_agent_messages = load_agent_messages.clone();
+                                                                    let load_all2 = load_all_processes.clone();
                                                                     let worktree_opt = _task_worktree_path.clone();
+                                                                    let task_id_for_keydown = task_id_for_closure.clone();
                                                                     move |ev| {
                                                                         let ke: web_sys::KeyboardEvent = ev.clone().unchecked_into();
                                                                         if ke.key() == "Enter" && !ke.shift_key() {
@@ -1060,6 +1192,16 @@ pub fn TaskSidebar(
                                                                             if msg.trim().is_empty() { return; }
                                                                             set_is_sending_message.set(true);
                                                                             let lam = load_agent_messages.clone();
+                                                                            let tid_for_proc = task_id_for_keydown.clone();
+                                                                            let now = chrono::Utc::now().to_rfc3339();
+                                                                            let kind_str = match selected_profile.get_untracked() {
+                                                                                AgentProfile::ClaudeCode => "claude".to_string(),
+                                                                                AgentProfile::Codex => "codex".to_string(),
+                                                                            };
+                                                                    let set_all = set_all_processes.clone();
+                                                                            let tid_for_proc_value = tid_for_proc.clone();
+                                                                            let now_value = now.clone();
+                                                                            let kind_value = kind_str.clone();
                                                                             spawn_local(async move {
                                                                                 let args = serde_json::json!({
                                                                                     "processId": pid,
@@ -1069,22 +1211,35 @@ pub fn TaskSidebar(
                                                                                 if let Ok(js_value) = to_value(&args) {
                                                                                     let resp = invoke("send_agent_message", js_value).await;
                                                                                     if !resp.is_undefined() {
-                                                                                        if let Ok(new_pid) = serde_wasm_bindgen::from_value::<String>(resp) {
-                                                                                            set_current_process_id.set(Some(new_pid.clone()));
-                                                                                            set_message_input.set(String::new());
-                                                                                            lam(new_pid);
-                                                                                        }
+                                                                                    if let Ok(new_pid) = serde_wasm_bindgen::from_value::<String>(resp) {
+                                                                                        set_current_process_id.set(Some(new_pid.clone()));
+                                                                                        set_message_input.set(String::new());
+                                                                                        // Optimistically add new process to the list so its group appears immediately
+                                                                                        set_all.update(|procs| {
+                                                                                            procs.push(serde_json::json!({
+                                                                                                "id": new_pid.clone(),
+                                                                                                "task_id": tid_for_proc_value,
+                                                                                                "status": "starting",
+                                                                                                "start_time": now_value,
+                                                                                                "message_count": 0,
+                                                                                                "kind": kind_value
+                                                                                            }));
+                                                                                        });
+                                                                                        lam(new_pid);
+                                                                                        let _ = gloo_timers::future::TimeoutFuture::new(300).await;
+                                                                                        load_all2();
                                                                                     }
                                                                                 }
-                                                                                set_is_sending_message.set(false);
-                                                                            });
+                                                                            }
+                                                                            set_is_sending_message.set(false);
+                                                                        });
                                                                         }
                                                                     }
                                                                 }
                                                                 prop:value=move || message_input.get()
                                                                 disabled={move || current_process_id.get().is_none() || !worktree_available || is_sending_message.get()}
                                                             />
-                                                            <button 
+                                                            <button
                                                                 class="send-btn"
                                                                 disabled={move || current_process_id.get().is_none() || !worktree_available || message_input.get().trim().is_empty() || is_sending_message.get()}
                                                                 on:click={
@@ -1095,6 +1250,14 @@ pub fn TaskSidebar(
                                                                     let set_current_process_id = set_current_process_id.clone();
                                                                     let load_agent_messages = load_agent_messages.clone();
                                                                     let worktree_opt = _task_worktree_path.clone();
+                                                                    let set_all = set_all_processes.clone();
+                                                                    let load_all3 = load_all_processes.clone();
+                                                                    let task_id_for_click = task_id_for_closure.clone();
+                                                                    let now_click = chrono::Utc::now().to_rfc3339();
+                                                                    let kind_click = match selected_profile.get_untracked() {
+                                                                        AgentProfile::ClaudeCode => "claude".to_string(),
+                                                                        AgentProfile::Codex => "codex".to_string(),
+                                                                    };
                                                                     move |_| {
                                                                         if current_process_id.get().is_none() { return; }
                                                                         if worktree_opt.is_none() { return; }
@@ -1104,6 +1267,9 @@ pub fn TaskSidebar(
                                                                         if msg.trim().is_empty() { return; }
                                                                         set_is_sending_message.set(true);
                                                                         let lam = load_agent_messages.clone();
+                                                                        let tid_for_proc_value = task_id_for_click.clone();
+                                                                        let now_click_value = now_click.clone();
+                                                                        let kind_click_value = kind_click.clone();
                                                                         spawn_local(async move {
                                                                             let args = serde_json::json!({
                                                                                 "processId": pid,
@@ -1118,7 +1284,20 @@ pub fn TaskSidebar(
                                                                                         set_current_process_id.set(Some(new_pid.clone()));
                                                                                         // Clear input and load messages for the new process immediately
                                                                                         set_message_input.set(String::new());
+                                                                                        // Optimistically add new process so its group appears instantly
+                                                                                        set_all.update(|procs| {
+                                                                                            procs.push(serde_json::json!({
+                                                                                                "id": new_pid.clone(),
+                                                                                                "task_id": tid_for_proc_value,
+                                                                                                "status": "starting",
+                                                                                                "start_time": now_click_value,
+                                                                                                "message_count": 0,
+                                                                                                "kind": kind_click_value
+                                                                                            }));
+                                                                                        });
                                                                                         lam(new_pid);
+                                                                                        let _ = gloo_timers::future::TimeoutFuture::new(300).await;
+                                                                                        load_all3();
                                                                                     }
                                                                                 }
                                                                             }
@@ -1134,76 +1313,11 @@ pub fn TaskSidebar(
                                                 </div>
                                             }
                                         }.into_any(),
-                                        "diff" => view! {
-                                            <div class="diff-tab">
-                                                <div class="diff-content">
-                                                    <div class="placeholder-content">
-                                                        <h4>"File Diffs"</h4>
-                                                        <p>"TODO: Show file changes from worktree"</p>
-                                                        <p class="hint">"This will display modified files with +/- line changes"</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }.into_any(),
-                                        "processes" => {
-                                            let processes = all_processes.get();
-                                            let current_task_processes: Vec<_> = processes.iter()
-                                                .filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task.id))
-                                                .cloned()
-                                                .collect();
-                                            let has_processes = !current_task_processes.is_empty();
-                                            
-                                            view! {
-                                                <div class="processes-tab">
-                                                    <div class="process-list">
-                                                        <h4>"Agent Processes"</h4>
-                                                        {if !has_processes {
-                                                            view! {
-                                                                <div class="no-processes">
-                                                                    <p>"No processes spawned yet"</p>
-                                                                    <p class="hint">"Process details with expandable JSON will appear here"</p>
-                                                                </div>
-                                                            }.into_any()
-                                                        } else {
-                                                            view! {
-                                                                <div class="process-items">
-                                                                    {processes.into_iter().filter(|p| p.get("task_id").and_then(|v| v.as_str()) == Some(&task.id)).map(|proc| {
-                                                                        let proc_id = proc.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                                                                        let status = proc.get("status").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                                                                        let msg_count = proc.get("message_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                                                                        let task_id = proc.get("task_id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                                                                        let json_content = serde_json::to_string_pretty(&proc).unwrap_or_else(|_| "Invalid JSON".to_string());
-                                                                        
-                                                                        let status_class = format!("process-status {}", status);
-                                                                        let proc_id_short = format!("{}...", &proc_id[..8.min(proc_id.len())]);
-                                                                        let task_id_display = format!("Task: {}", task_id);
-                                                                        let status_display = status.clone();
-                                                                        let msg_count_display = format!("{} msgs", msg_count);
-                                                                        
-                                                                        view! {
-                                                                            <div class="process-item">
-                                                                                <div class="process-header">
-                                                                                    <span class="process-id">{proc_id_short}</span>
-                                                                                    <span class="task-id">{task_id_display}</span>
-                                                                                    <span class=status_class>{status_display}</span>
-                                                                                    <span class="message-count">{msg_count_display}</span>
-                                                                                </div>
-                                                                                <details>
-                                                                                    <summary>"Show JSON Details"</summary>
-                                                                                    <pre class="json-content">{json_content}</pre>
-                                                                                </details>
-                                                                            </div>
-                                                                        }
-                                                                    }).collect::<Vec<_>>()}
-                                                                </div>
-                                                            }.into_any()
-                                                        }}
-                                                    </div>
-                                                </div>
-                                            }
-                                        }.into_any(),
+                                        "diff" => view! { <crate::components::agents::DiffTab /> }.into_any(),
+                                        "processes" => view! { <crate::components::agents::ProcessesTab processes=all_processes.get() task_id=task_id_for_closure.clone() /> }.into_any(),
                                         _ => view! {}.into_any()
-                                    }}
+                                    } }
+                                }
                                 </div>
                             </div>
                         }.into_any()
@@ -1213,4 +1327,3 @@ pub fn TaskSidebar(
         </div>
     }
 }
-

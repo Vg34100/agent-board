@@ -1054,11 +1054,30 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                 if let Some(task) = editing_task.get() {
                     let edit_callback = {
                         let set_tasks_for_edit = set_tasks.clone();
+                        let tasks_read_for_edit = tasks.clone();
+                        let project_id_for_edit = project_id.clone();
                         Box::new(move |task_id: String, new_title: String, new_description: String| {
+                            // Update in-memory state
                             set_tasks_for_edit.update(|tasks| {
                                 if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-                                    task.update_title(new_title);
-                                    task.update_description(new_description);
+                                    task.update_title(new_title.clone());
+                                    task.update_description(new_description.clone());
+                                }
+                            });
+
+                            // Persist to store immediately
+                            let project_id_to_save = project_id_for_edit.clone();
+                            let tasks_for_save = tasks_read_for_edit.get_untracked();
+                            spawn_local(async move {
+                                let tasks_json: Vec<serde_json::Value> = tasks_for_save.into_iter()
+                                    .filter_map(|t| serde_json::to_value(&t).ok())
+                                    .collect();
+                                let save_args = serde_json::json!({
+                                    "projectId": project_id_to_save,
+                                    "tasks": tasks_json
+                                });
+                                if let Ok(js_value) = to_value(&save_args) {
+                                    let _ = invoke("save_tasks_data", js_value).await;
                                 }
                             });
                         }) as Box<dyn Fn(String, String, String) + 'static>
@@ -1077,7 +1096,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             }}
 
             <EditProjectModal
-                project_id=project_id
+                project_id=project_id_for_sidebar
                 on_update=update_project
                 dialog_ref=edit_project_dialog_ref
             />
