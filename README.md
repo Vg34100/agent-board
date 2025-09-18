@@ -61,7 +61,9 @@ Notes
 ## Agent Processes
 - Choose a profile (Claude Code or Codex) per task.
 - Start agent: spawns the respective CLI in the worktree with the task title/description as the initial prompt; messages stream to the sidebar.
-- Messages and process summaries persist; UI listens to SSE events for updates.
+- Multi‑turn: replying in the Agents tab continues the conversation by spawning a new process that carries forward context. The newest process appears immediately with `kind`/`start_time` and opens by default; older groups collapse automatically.
+- Persistence: per‑process messages are stored under `agent_messages_{taskId}_{processId}.json` and hydrate on restart; a task‑level snapshot is also kept.
+- UI listens to SSE (`agent_message_update`, `agent_process_status`) and keeps the view pinned to bottom while streaming if you’re already near the bottom.
 
 ## Troubleshooting
 - “Unborn HEAD” when creating worktree: initialize repo (the app does this for new projects by creating README + initial commit).
@@ -71,4 +73,3 @@ Notes
 ## Docs
 - See `docs/README.md` for the doc index, roadmap, and troubleshooting.
 - See `docs/architecture.md` for deeper internals and extension points.
-

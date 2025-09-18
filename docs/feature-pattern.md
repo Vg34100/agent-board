@@ -49,28 +49,24 @@ Use this template when adding new capabilities. It standardizes the flow from UI
 
 ## Worked Example: Agent Reply (Multi‑Turn Conversation)
 
-Note: This UI is not yet implemented (currently tasks only send the initial message on start). Use this pattern to add a reply box so users can continue the conversation.
+Status: Implemented. The Agents tab supports multi‑turn replies; each reply spawns a new process that carries forward context. The newest process opens by default; older ones are collapsed.
 
-What already exists
+What exists
 - Backend:
   - `start_agent_process(app, task_id, task_title, task_description, worktree_path, profile)`
   - `send_agent_message(app, process_id, message, worktree_path)` → spawns a new process using the context of the given `process_id` and returns the new process id.
-  - Message/process persistence, SSE events.
+  - Per‑process message persistence & task snapshot, SSE events.
 - HTTP mapping (web.rs): cases for `start_agent_process`, `send_agent_message`, `get_process_list`, `get_agent_messages`, etc.
 
-What to add (UI)
-1) Add an input + send button to the Task Sidebar (`src/components/task_sidebar.rs`).
-- Keep a `message_input` signal and a `sending` guard.
-- On send:
-  - Require a current/last `process_id` for this task (the sidebar already derives a current id; update to ensure it’s set after start or after each reply).
-  - Call `invoke("send_agent_message", { processId, message, worktreePath })`.
-  - The command returns a NEW `process_id`; update `current_process_id` to this value.
-  - Clear the input, and optionally optimistically append a “user” message to the UI before SSE updates arrive.
-  - Persist messages via `save_task_agent_messages` after updates (the sidebar already demonstrates this pattern).
+What the UI does
+1) Reply input + send in `TaskSidebar`.
+– Uses the current process id to continue the conversation and calls `send_agent_message`.
+– The command returns a NEW `process_id`; UI updates `current_process_id`, inserts an optimistic process row with `start_time` + `kind`, and schedules a short delayed refresh to reflect `completed` status.
+– Message loads for a process are persisted to per‑process store; on restart, the UI hydrates each process group from its own store file.
 
 2) Ensure message stream refreshes
-- The SSE event `agent_message_update` will arrive; merge messages for the current process and save.
-- If needed, poll `get_agent_messages(process_id)` immediately after sending to avoid initial latency.
+– The SSE event `agent_message_update` arrives; the UI refreshes messages for that process, persists, and performs sticky scroll if near bottom (with delayed passes to absorb long diff reflow).
+– On cold starts or when runtime returns empty, the UI hydrates from per‑process persistence and never overwrites the store with empty results.
 
 3) Edge cases
 - If no prior process exists for the task (user closed the app), consider falling back to `start_agent_process` or showing a prompt to (re)start.
@@ -92,4 +88,3 @@ Testing checklist
   - New agent output streams in via SSE
   - Messages persist and rehydrate on reload
 - Kill a process, verify UI state and persistence aren’t corrupted.
-

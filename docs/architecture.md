@@ -102,13 +102,24 @@ Profiles
 Store files (keys)
 - `projects.json` (`projects`)
 - `tasks_{project_id}.json` (`tasks`)
-- `agent_messages_{task_id}.json` (`messages`)
+- `agent_messages_{task_id}.json` (`messages`) — task‑level snapshot
+- `agent_messages_{task_id}_{process_id}.json` (`messages`) — per‑process history
 - `agent_processes.json` (`processes`)
 - `agent_settings.json` (`settings`)
 
 Frontend rules
 - Always invoke Tauri commands; do not access store directly from WASM.
 - Serialize arrays of objects carefully; `index.html` contains a Map→object fix for WASM types when running over HTTP.
+
+Hydration on restart
+- On a cold start, the UI hydrates each process’s messages from `agent_messages_{taskId}_{processId}.json`.
+- Runtime in‑memory getters may be empty after restart; the UI never overwrites persisted data with empty results.
+
+Newest process open by default
+- Processes are sorted by RFC3339 `start_time`; the newest is selected and opened when the sidebar mounts. Older groups remain collapsed.
+
+Continuations
+- Replying in the Agents tab continues the conversation by spawning a new process carrying forward context. The new process is added immediately with `kind` and `start_time`, and a short delayed refresh updates its final status.
 
 ## Adding a New Feature
 
@@ -124,4 +135,3 @@ Tips
 - Prefer simple, typed payloads at the command boundary and convert to JSON values near the store.
 - Keep noisy logs behind `AGENT_BOARD_DEBUG` or only during development.
 - Add troubleshooting notes for any OS‑specific behavior (e.g., Windows path probing).
-
