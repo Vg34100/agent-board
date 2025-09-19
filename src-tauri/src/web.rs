@@ -19,7 +19,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use std::convert::Infallible;
 use once_cell;
 use std::env;
 
@@ -622,6 +621,24 @@ async fn invoke(State(state): State<WebState>, Json(req): Json<InvokeReq>) -> im
                     Err(e) => json!(e),
                 }
             } else { json!("Missing processes") }
+        }
+        "get_worktree_diffs" => {
+            if let Some(path) = str_arg_from(&args, &["worktreePath", "worktree_path"]) {
+                println!("get_worktree_diffs invoked with path: {}", path);
+                match super::get_worktree_diffs(path.clone()).await {
+                    Ok(v) => {
+                        println!("get_worktree_diffs returning {} files", v.len());
+                        json!(v)
+                    }
+                    Err(e) => {
+                        println!("get_worktree_diffs error: {}", e);
+                        json!(e)
+                    }
+                }
+            } else {
+                println!("get_worktree_diffs missing worktreePath arg");
+                json!("Missing worktreePath")
+            }
         }
 
         _ => json!({ "error": format!("Unknown command: {}", req.cmd) }),

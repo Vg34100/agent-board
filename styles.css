@@ -2128,3 +2128,19 @@ body {
 .hidden {
   display: none !important;
 }
+.diff-tab { padding: 8px; text-align: left; }
+.diff-tab .diff-content { text-align: left; }
+.diff-file-list { display: flex; flex-direction: column; gap: 8px; }
+.diff-file-item { border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #111; text-align: left; }
+.diff-file-header { width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; background: #1a1a1a; border: none; color: #ddd; cursor: pointer; }
+.diff-file-header .file-name { flex: 1; font-weight: 600; }
+.chip { font-size: 12px; padding: 2px 6px; border-radius: 999px; }
+.chip.add { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+.chip.del { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
+.diff-patch { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; text-align: left; }
+.diff-line { white-space: pre-wrap; padding: 2px 10px; text-align: left; }
+.diff-line.add { background: rgba(16,185,129,0.18); color: #d1fae5; }
+.diff-line.del { background: rgba(239,68,68,0.18); color: #fee2e2; }
+.diff-line.ctx { color: #bbb; }
+.diff-line.hunk { background: #242b36; color: #93c5fd; font-weight: 600; }
+.diff-line.meta { color: #888; }

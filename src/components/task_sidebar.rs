@@ -973,7 +973,7 @@ pub fn TaskSidebar(
                                                 </div>
                                             }
                                         }.into_any(),
-                                        "diff" => view! { <crate::components::agents::DiffTab /> }.into_any(),
+                                        "diff" => view! { <crate::components::agents::DiffTab task_id=task_id_for_closure.clone() worktree_path=_task_worktree_path.clone().unwrap_or_default().into() /> }.into_any(),
                                         "processes" => view! { <crate::components::agents::ProcessesTab processes=all_processes.get() task_id=task_id_for_closure.clone() /> }.into_any(),
                                         _ => view! {}.into_any()
                                     } }

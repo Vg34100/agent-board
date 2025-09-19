@@ -2,11 +2,185 @@ use git2::{Repository, WorktreeAddOptions};
 use std::path::{Path, PathBuf};
 use std::fs;
 use tauri::{AppHandle, Manager};
+use serde::{Serialize, Deserialize};
+use std::process::Command;
 
 #[derive(Debug)]
 pub struct GitWorktree {
     pub path: PathBuf,
     pub _branch_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffFile {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
+    pub patch: String,
+}
+
+fn count_added_removed_from_patch(patch_text: &str) -> (u32, u32) {
+    let mut added = 0u32;
+    let mut removed = 0u32;
+    for line in patch_text.lines() {
+        if line.starts_with("+++") || line.starts_with("---") || line.starts_with("@@") || line.starts_with("diff --git") || line.starts_with("index ") {
+            continue;
+        }
+        if line.starts_with('+') { added += 1; }
+        else if line.starts_with('-') { removed += 1; }
+    }
+    (added, removed)
+}
+
+fn list_untracked_files(worktree_path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new("git")
+        .args(["-C", worktree_path, "ls-files", "--others", "--exclude-standard"])
+        .output()
+        .map_err(|e| format!("Failed to run git ls-files: {}", e))?;
+    if !out.status.success() {
+        return Err(format!("git ls-files failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let mut files = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if !line.trim().is_empty() {
+            files.push(line.trim().to_string());
+        }
+    }
+    Ok(files)
+}
+
+pub fn get_worktree_diffs(worktree_path: &str) -> Result<Vec<DiffFile>, String> {
+    println!("[diffs] worktree_path={} ", worktree_path);
+    // Get added/removed counts per file
+    let numstat = Command::new("git")
+        .args(["-C", worktree_path, "diff", "--numstat"])
+        .output()
+        .map_err(|e| format!("Failed to run git diff --numstat: {}", e))?;
+    if !numstat.status.success() {
+        println!("[diffs] git diff --numstat failed: {}", String::from_utf8_lossy(&numstat.stderr));
+        // Don't early-return; continue to try untracked path
+    }
+    let mut counts: std::collections::HashMap<String, (u32, u32)> = std::collections::HashMap::new();
+    for line in String::from_utf8_lossy(&numstat.stdout).lines() {
+        // format: added<TAB>removed<TAB>path
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 3 {
+            let added = parts[0].parse::<u32>().unwrap_or(0);
+            let removed = parts[1].parse::<u32>().unwrap_or(0);
+            let path = parts[2].to_string();
+            counts.insert(path, (added, removed));
+        }
+    }
+
+    // Get unified diff
+    let patch_out = Command::new("git")
+        .args(["-C", worktree_path, "diff", "--unified=3", "--no-color"])
+        .output()
+        .map_err(|e| format!("Failed to run git diff: {}", e))?;
+    if !patch_out.status.success() {
+        println!("[diffs] git diff failed: {}", String::from_utf8_lossy(&patch_out.stderr));
+    }
+    let patch_text = String::from_utf8_lossy(&patch_out.stdout);
+    println!("[diffs] tracked patch bytes: {}", patch_out.stdout.len());
+
+    // Split by files
+    let mut files = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    for line in patch_text.lines() {
+        if line.starts_with("diff --git ") {
+            if !current.is_empty() {
+                if let Some(df) = parse_diff_file(&current.join("\n"), &counts) {
+                    files.push(df);
+                }
+                current.clear();
+            }
+        }
+        current.push(line.to_string());
+    }
+    if !current.is_empty() {
+        if let Some(df) = parse_diff_file(&current.join("\n"), &counts) {
+            files.push(df);
+        }
+    }
+
+    // Include untracked files as new-file patches via --no-index
+    if let Ok(untracked) = list_untracked_files(worktree_path) {
+        println!("[diffs] untracked count: {}", untracked.len());
+        for rel in untracked {
+            println!("[diffs] untracked: {}", rel);
+            // Build patch for new file by comparing /dev/null to the file
+            // Use OS-specific null path
+            #[cfg(target_os = "windows")]
+            let null_path = "NUL"; // git accepts NUL as null device
+            #[cfg(not(target_os = "windows"))]
+            let null_path = "/dev/null";
+
+            let out = Command::new("git")
+                .args(["-C", worktree_path, "diff", "--no-index", "--unified=3", "--no-color", null_path, &rel])
+                .output()
+                .map_err(|e| format!("Failed to run git diff --no-index: {}", e))?;
+            println!("[diffs] no-index status: {:?} stdout_len={} stderr_len={}", out.status.code(), out.stdout.len(), out.stderr.len());
+            let patch = if out.stdout.is_empty() {
+                // Fallback: synthesize patch by reading file content
+                let full_path = std::path::Path::new(worktree_path).join(&rel);
+                match std::fs::read_to_string(&full_path) {
+                    Ok(content) => {
+                        let mut p = String::new();
+                        p.push_str(&format!("diff --git a/{0} b/{0}\n", rel));
+                        p.push_str("new file mode 100644\n");
+                        p.push_str("index 0000000..0000000\n");
+                        p.push_str("--- /dev/null\n");
+                        p.push_str(&format!("+++ b/{}\n", rel));
+                        p.push_str("@@ -0,0 +1,? @@\n");
+                        for line in content.lines() {
+                            p.push('+');
+                            p.push_str(line);
+                            p.push('\n');
+                        }
+                        p
+                    }
+                    Err(e) => {
+                        println!("[diffs] failed to read untracked file {}: {}", full_path.display(), e);
+                        String::new()
+                    }
+                }
+            } else {
+                String::from_utf8_lossy(&out.stdout).to_string()
+            };
+            if !patch.is_empty() {
+                let (added, removed) = count_added_removed_from_patch(&patch);
+                println!("[diffs] synthesized patch for {} (+{} -{})", rel, added, removed);
+                let df = DiffFile { path: rel.clone(), added, removed, patch };
+                files.push(df);
+            }
+        }
+    }
+
+    println!("[diffs] total files collected: {}", files.len());
+    Ok(files)
+}
+
+fn parse_diff_file(block: &str, counts: &std::collections::HashMap<String, (u32, u32)>) -> Option<DiffFile> {
+    // Try to find +++ b/<path> as canonical new path
+    let mut path: Option<String> = None;
+    for line in block.lines() {
+        if let Some(rest) = line.strip_prefix("+++ b/") {
+            path = Some(rest.to_string());
+            break;
+        }
+    }
+    if path.is_none() {
+        // Fallback to --- a/<path>
+        for line in block.lines() {
+            if let Some(rest) = line.strip_prefix("--- a/") {
+                path = Some(rest.to_string());
+                break;
+            }
+        }
+    }
+    let path = path?;
+    let (added, removed) = counts.get(&path).cloned().unwrap_or((0, 0));
+    Some(DiffFile { path, added, removed, patch: block.to_string() })
 }
 
 /// Gets the app data directory for storing worktrees
