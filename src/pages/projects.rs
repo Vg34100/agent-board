@@ -3,7 +3,7 @@ use leptos::html::Dialog;
 use leptos::task::spawn_local;
 use crate::app::AppView;
 use crate::components::ProjectModal;
-use crate::models::{Project, Task, TaskStatus};
+use crate::core::models::{Project, Task, TaskStatus};
 use serde_wasm_bindgen::to_value;
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;

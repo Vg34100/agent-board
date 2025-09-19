@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::{ev, html::Dialog};
-use crate::models::Task;
+use crate::core::models::Task;
 
 #[component]
 pub fn EditTaskModal(

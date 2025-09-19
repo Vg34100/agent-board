@@ -1,5 +1,6 @@
 mod app;
-mod models;
+mod core;
+mod features;
 mod pages;
 mod components;
 

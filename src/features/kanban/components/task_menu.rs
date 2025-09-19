@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use crate::models::{Task};
+use crate::core::models::{Task};
 use std::rc::Rc;
 
 #[component]

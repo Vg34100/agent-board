@@ -1,10 +1,10 @@
 use leptos::prelude::*;
-use crate::models::TaskStatus;
+use crate::core::models::TaskStatus;
 
 #[component]
 pub fn KanbanColumn(
     #[prop(into)] status: TaskStatus,
-    #[prop(into)] tasks: ReadSignal<Vec<crate::models::Task>>,
+    #[prop(into)] tasks: ReadSignal<Vec<crate::core::models::Task>>,
     children: Children,
 ) -> impl IntoView {
     let status_for_count = status.clone();

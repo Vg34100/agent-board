@@ -1,13 +1,6 @@
 use leptos::task::spawn_local;
-use wasm_bindgen::prelude::*;
-use serde_wasm_bindgen::to_value;
-use crate::models::{Task, Project};
-
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
-    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
-}
+use crate::core::models::{Task, Project};
+use super::tauri_commands::*;
 
 // Safe task serialization function with error handling
 pub fn serialize_tasks_safely(tasks: &[Task]) -> Vec<serde_json::Value> {
@@ -43,24 +36,19 @@ pub fn serialize_tasks_safely(tasks: &[Task]) -> Vec<serde_json::Value> {
 
 // Load projects from storage
 pub async fn load_projects() -> Result<Vec<Project>, String> {
-    let empty_args = serde_json::json!({});
-    if let Ok(js_value) = to_value(&empty_args) {
-        match invoke("load_projects_data", js_value).await {
-            js_result if !js_result.is_undefined() => {
-                if let Ok(projects_wrapper) = serde_wasm_bindgen::from_value::<Vec<Vec<Project>>>(js_result) {
-                    if let Some(projects) = projects_wrapper.first() {
-                        Ok(projects.clone())
-                    } else {
-                        Ok(Vec::new())
-                    }
+    match load_projects_data().await {
+        Ok(js_result) => {
+            if let Ok(projects_wrapper) = serde_wasm_bindgen::from_value::<Vec<Vec<Project>>>(js_result) {
+                if let Some(projects) = projects_wrapper.first() {
+                    Ok(projects.clone())
                 } else {
-                    Err("Failed to parse projects data".to_string())
+                    Ok(Vec::new())
                 }
+            } else {
+                Err("Failed to parse projects data".to_string())
             }
-            _ => Err("Failed to load projects from storage".to_string())
         }
-    } else {
-        Err("Failed to serialize load arguments".to_string())
+        Err(e) => Err(format!("Failed to load projects from storage: {}", e))
     }
 }
 
@@ -78,46 +66,29 @@ pub async fn save_projects(projects: &[Project]) -> Result<(), String> {
         })
         .collect();
 
-    let save_args = serde_json::json!({
-        "projects": projects_json
-    });
-
-    if let Ok(save_js_value) = to_value(&save_args) {
-        match invoke("save_projects_data", save_js_value).await {
-            js_result if !js_result.is_undefined() => {
-                web_sys::console::log_1(&"Projects saved successfully".into());
-                Ok(())
-            }
-            _ => {
-                Err("Failed to save projects to storage".to_string())
-            }
+    match save_projects_data(projects_json).await {
+        Ok(_) => {
+            web_sys::console::log_1(&"Projects saved successfully".into());
+            Ok(())
         }
-    } else {
-        Err("Failed to serialize save arguments".to_string())
+        Err(e) => Err(format!("Failed to save projects to storage: {}", e))
     }
 }
 
 // Load tasks for a specific project
 pub async fn load_tasks(project_id: &str) -> Result<Vec<Task>, String> {
-    let load_args = serde_json::json!({ "projectId": project_id });
-    if let Ok(js_value) = to_value(&load_args) {
-        match invoke("load_tasks_data", js_value).await {
-            js_result if !js_result.is_undefined() => {
-                if let Ok(tasks_json) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
-                    let tasks: Vec<Task> = tasks_json.into_iter()
-                        .filter_map(|v| serde_json::from_value(v).ok())
-                        .collect();
-                    Ok(tasks)
-                } else {
-                    Ok(Vec::new()) // No tasks exist yet
-                }
-            }
-            _ => {
+    match load_tasks_data(project_id).await {
+        Ok(js_result) => {
+            if let Ok(tasks_json) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(js_result) {
+                let tasks: Vec<Task> = tasks_json.into_iter()
+                    .filter_map(|v| serde_json::from_value(v).ok())
+                    .collect();
+                Ok(tasks)
+            } else {
                 Ok(Vec::new()) // No tasks exist yet
             }
         }
-    } else {
-        Err("Failed to serialize load arguments".to_string())
+        Err(_) => Ok(Vec::new()) // No tasks exist yet
     }
 }
 
@@ -130,23 +101,12 @@ pub async fn save_tasks(project_id: &str, tasks: &[Task]) -> Result<(), String> 
         return Err(format!("DATA LOSS WARNING: Lost {} tasks during serialization! Aborting save to prevent corruption.", tasks.len() - json_tasks.len()));
     }
 
-    let save_args = serde_json::json!({
-        "projectId": project_id,
-        "tasks": json_tasks
-    });
-
-    if let Ok(js_value) = to_value(&save_args) {
-        match invoke("save_tasks_data", js_value).await {
-            js_result if !js_result.is_undefined() => {
-                web_sys::console::log_1(&format!("Tasks for project {} saved successfully", project_id).into());
-                Ok(())
-            }
-            _ => {
-                Err("Failed to save tasks to storage".to_string())
-            }
+    match save_tasks_data(project_id, json_tasks).await {
+        Ok(_) => {
+            web_sys::console::log_1(&format!("Tasks for project {} saved successfully", project_id).into());
+            Ok(())
         }
-    } else {
-        Err("Failed to serialize save arguments".to_string())
+        Err(e) => Err(format!("Failed to save tasks to storage: {}", e))
     }
 }
 

@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::models::Project;
+use crate::core::models::Project;
+use crate::core::services::{load_projects, save_projects};
 use crate::app::AppView;
-use super::storage_manager::{load_projects, save_projects};
 
 // Load project data (name and path) by project ID
 pub fn load_project_data(

@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos::{ev, html::Dialog};
 use leptos::task::spawn_local;
-use crate::models::Project;
+use crate::core::models::Project;
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
 use serde::{Deserialize, Serialize};

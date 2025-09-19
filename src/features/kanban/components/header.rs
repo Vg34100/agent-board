@@ -5,7 +5,7 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
 use crate::app::AppView;
-use crate::models::Project;
+use crate::core::models::Project;
 
 #[wasm_bindgen]
 extern "C" {

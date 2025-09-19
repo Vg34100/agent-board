@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::{ev, html::Dialog};
-use crate::models::{Task, TaskStatus, AgentProfile};
+use crate::core::models::{Task, TaskStatus, AgentProfile};
 use uuid::Uuid;
 use chrono::Utc;
 

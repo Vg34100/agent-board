@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::models::{Task, TaskStatus, AgentProfile};
+use crate::core::models::{Task, TaskStatus, AgentProfile};
 use std::sync::Arc;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
