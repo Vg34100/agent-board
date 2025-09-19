@@ -124,8 +124,8 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     // For now, tasks will be saved when creating new tasks via TaskModal
 
     // Create a signal to track which task is currently selected for the sidebar
-    // None means no sidebar is open, Some(task) means sidebar is showing that task
-    let (selected_task, set_selected_task) = signal::<Option<Task>>(None);
+    // None means no sidebar is open, Some(task_id) means sidebar is showing that task
+    let (selected_task, set_selected_task) = signal::<Option<String>>(None);
 
     // Track which dropdown is currently open (task ID)
     let (open_dropdown, set_open_dropdown) = signal::<Option<String>>(None);
@@ -236,7 +236,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
 
     // Handler for when a task is clicked - opens the sidebar with task details
     let select_task = move |task: Task| {
-        set_selected_task.set(Some(task));
+        set_selected_task.set(Some(task.id.clone()));
     };
 
     // No need for separate close handler - TaskSidebar will use the signal directly
@@ -598,8 +598,9 @@ pub fn Kanban(project_id: String) -> impl IntoView {
             {
                 let project_id_for_sidebar_use = project_id_for_sidebar.clone();
                 move || {
-                selected_task.with(|task_opt| {
-                    if let Some(task) = task_opt {
+                if let Some(task_id) = selected_task.get() {
+                    let maybe_task = tasks.with(|ts| ts.iter().find(|t| t.id == task_id).cloned());
+                    if let Some(task) = maybe_task {
                         let sidebar_edit_callback = {
                             let set_editing_task_clone = set_editing_task.clone();
                             let edit_dialog_ref_clone = edit_dialog_ref.clone();
@@ -1039,7 +1040,9 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                     } else {
                         view! {}.into_any()
                     }
-                })
+                } else {
+                    view! {}.into_any()
+                }
             }
             }
 

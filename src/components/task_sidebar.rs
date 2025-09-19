@@ -39,7 +39,7 @@ extern "C" {
 #[component]
 pub fn TaskSidebar(
     #[prop(into)] task: Task,
-    #[prop(into)] selected_task: WriteSignal<Option<Task>>,
+    #[prop(into)] selected_task: WriteSignal<Option<String>>,
     #[prop(into)] on_edit: Box<dyn Fn(Task) + 'static>, // Callback to trigger edit modal
     #[prop(into)] on_update_status: Rc<dyn Fn(String, TaskStatus) + 'static>,
     #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
