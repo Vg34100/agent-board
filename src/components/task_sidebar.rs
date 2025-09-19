@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use crate::models::{Task, TaskStatus, AgentProfile};
-use std::rc::Rc;
+use std::sync::Arc;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -41,7 +41,7 @@ pub fn TaskSidebar(
     #[prop(into)] task: Task,
     #[prop(into)] selected_task: WriteSignal<Option<String>>,
     #[prop(into)] on_edit: Box<dyn Fn(Task) + 'static>, // Callback to trigger edit modal
-    #[prop(into)] on_update_status: Rc<dyn Fn(String, TaskStatus) + 'static>,
+    #[prop(into)] on_update_status: Arc<dyn Fn(String, TaskStatus) + Send + Sync + 'static>,
     #[prop(into)] on_delete: Box<dyn Fn(String) + 'static>,
     #[prop(into)] on_open_worktree: Option<Box<dyn Fn(String) + 'static>>,
     #[prop(into)] on_open_ide: Option<Box<dyn Fn(String) + 'static>>,
@@ -401,6 +401,9 @@ pub fn TaskSidebar(
         let task_id_for_events = task.id.clone();
         let load_agent_messages_for_events = load_agent_messages.clone();
         let set_current_process_id_for_events = set_current_process_id.clone();
+        // Pre-clone props for listener closures to avoid moving the originals
+        let on_update_status_for_listeners = on_update_status.clone();
+        let task_id_for_status_for_listeners = task_id_for_events.clone();
 
         spawn_local(async move {
             // Listen for agent message update events AND process status updates
@@ -442,6 +445,9 @@ pub fn TaskSidebar(
             let load_status = load_agent_messages_for_events.clone();
             let set_id_status = set_current_process_id_for_events.clone();
             let load_all_processes_for_status = load_all_processes.clone();
+            // Clones for status-driven task transitions
+            let on_update_status_cb = on_update_status_for_listeners.clone();
+            let task_id_for_status_cb = task_id_for_status_for_listeners.clone();
             let status_handler = wasm_bindgen::closure::Closure::wrap(Box::new(move |event: JsValue| {
                 web_sys::console::log_1(&"📊 Received agent_process_status event".into());
                 if let Ok(event_data) = serde_wasm_bindgen::from_value::<serde_json::Value>(event) {
@@ -460,6 +466,10 @@ pub fn TaskSidebar(
                                     load_status(process_id.to_string());
                                     // CRITICAL: Also refresh process list to trigger UI re-render
                                     load_all_processes_for_status();
+                                    // When a process completes, move task to InReview
+                                    if status == "completed" || status == "complete" || status == "finished" {
+                                        on_update_status_cb(task_id_for_status_cb.clone(), TaskStatus::InReview);
+                                    }
                                 }
                             }
                         }
@@ -810,6 +820,8 @@ pub fn TaskSidebar(
                                                                     let load_all2 = load_all_processes.clone();
                                                                     let worktree_opt = _task_worktree_path.clone();
                                                                     let task_id_for_keydown = task_id_for_closure.clone();
+                                                                    let on_update_status_key = on_update_status.clone();
+                                                                    let task_status_at_render = task_status.clone();
                                                                     move |ev| {
                                                                         let ke: web_sys::KeyboardEvent = ev.clone().unchecked_into();
                                                                         if ke.key() == "Enter" && !ke.shift_key() {
@@ -832,6 +844,10 @@ pub fn TaskSidebar(
                                                                             let tid_for_proc_value = tid_for_proc.clone();
                                                                             let now_value = now.clone();
                                                                             let kind_value = kind_str.clone();
+                                                                            // Clone values for async move
+                                                                            let on_update_status_key2 = on_update_status_key.clone();
+                                                                            let task_status_at_render2 = task_status_at_render.clone();
+                                                                            let task_id_for_keydown2 = task_id_for_keydown.clone();
                                                                             spawn_local(async move {
                                                                                 let args = serde_json::json!({
                                                                                     "processId": pid,
@@ -843,6 +859,10 @@ pub fn TaskSidebar(
                                                                                     if !resp.is_undefined() {
                                                                                     if let Ok(new_pid) = serde_wasm_bindgen::from_value::<String>(resp) {
                                                                                         set_current_process_id.set(Some(new_pid.clone()));
+                                                                                        // If we were in review, flip back to InProgress on user reply
+                                                                                        if matches!(task_status_at_render2, TaskStatus::InReview) {
+                                                                                            on_update_status_key2(task_id_for_keydown2.clone(), TaskStatus::InProgress);
+                                                                                        }
                                                                                         set_message_input.set(String::new());
                                                                                         // Optimistically add new process to the list so its group appears immediately
                                                                                         set_all.update(|procs| {
@@ -863,8 +883,8 @@ pub fn TaskSidebar(
                                                                             }
                                                                             set_is_sending_message.set(false);
                                                                         });
-                                                                        }
                                                                     }
+                                                                }
                                                                 }
                                                                 prop:value=move || message_input.get()
                                                                 disabled={move || current_process_id.get().is_none() || !worktree_available || is_sending_message.get()}
@@ -888,6 +908,8 @@ pub fn TaskSidebar(
                                                                         AgentProfile::ClaudeCode => "claude".to_string(),
                                                                         AgentProfile::Codex => "codex".to_string(),
                                                                     };
+                                                                    let on_update_status_click = on_update_status.clone();
+                                                                    let task_status_at_render_click = task_status.clone();
                                                                     move |_| {
                                                                         if current_process_id.get().is_none() { return; }
                                                                         if worktree_opt.is_none() { return; }
@@ -900,6 +922,10 @@ pub fn TaskSidebar(
                                                                         let tid_for_proc_value = task_id_for_click.clone();
                                                                         let now_click_value = now_click.clone();
                                                                         let kind_click_value = kind_click.clone();
+                                                                        // Clone for async move
+                                                                        let on_update_status_click2 = on_update_status_click.clone();
+                                                                        let task_status_at_render_click2 = task_status_at_render_click.clone();
+                                                                        let task_id_for_click2 = task_id_for_click.clone();
                                                                         spawn_local(async move {
                                                                             let args = serde_json::json!({
                                                                                 "processId": pid,
@@ -912,6 +938,10 @@ pub fn TaskSidebar(
                                                                                 if !resp.is_undefined() {
                                                                                     if let Ok(new_pid) = serde_wasm_bindgen::from_value::<String>(resp) {
                                                                                         set_current_process_id.set(Some(new_pid.clone()));
+                                                                                        // If we were in review, flip back to InProgress on user reply
+                                                                                        if matches!(task_status_at_render_click2, TaskStatus::InReview) {
+                                                                                            on_update_status_click2(task_id_for_click2.clone(), TaskStatus::InProgress);
+                                                                                        }
                                                                                         // Clear input and load messages for the new process immediately
                                                                                         set_message_input.set(String::new());
                                                                                         // Optimistically add new process so its group appears instantly

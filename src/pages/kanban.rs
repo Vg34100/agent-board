@@ -8,6 +8,7 @@ use crate::models::AgentProfile;
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
 use std::rc::Rc;
+use std::sync::Arc;
 
 // Safe task serialization function with error handling
 fn serialize_tasks_safely(tasks: &[Task]) -> Vec<serde_json::Value> {
@@ -612,11 +613,11 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                             }) as Box<dyn Fn(Task) + 'static>
                         };
 
-                        let sidebar_status_callback = {
+                        let sidebar_status_callback: Arc<dyn Fn(String, TaskStatus) + Send + Sync> = {
                             let set_tasks_for_status = set_tasks.clone();
                             let tasks_for_status = tasks.clone();
                             let project_id_for_worktree = project_id_for_sidebar_use.clone();
-                            Rc::new(move |task_id: String, status: TaskStatus| {
+                            Arc::new(move |task_id: String, status: TaskStatus| {
                                 // Clone data before mutable borrow
                                 let task_id_for_save = task_id.clone();
                                 let project_id_for_immediate_save = project_id_for_worktree.clone();
@@ -626,8 +627,11 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                         let old_status = task.status.clone();
                                         task.update_status(status.clone());
 
-                                        // If task is moving to InProgress, create a worktree
+                                        // If task is moving to InProgress, create a worktree only if missing
                                         if status == TaskStatus::InProgress && old_status != TaskStatus::InProgress {
+                                            if task.worktree_path.is_some() {
+                                                web_sys::console::log_1(&format!("Reusing existing worktree for task {}", task.id).into());
+                                            } else {
                                             let task_id_clone = task_id.clone();
                                             let project_id_clone = project_id_for_worktree.clone();
                                             let set_tasks_clone = set_tasks_for_status.clone();
@@ -775,6 +779,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                                     }
                                                 }
                                             });
+                                            }
                                         }
 
                                         // If task is moving away from InProgress (to Done/Cancelled), remove worktree
@@ -907,7 +912,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                         }
                                     });
                                 });
-                            }) as Rc<dyn Fn(String, TaskStatus) + 'static>
+                            })
                         };
 
                         let sidebar_delete_callback = {
@@ -1027,13 +1032,13 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                                 on_open_ide=Some(sidebar_ide_callback)
                                 on_update_profile={
                                     let set_tasks_for_profile = set_tasks.clone();
-                                    (Box::new(move |task_id: String, profile: AgentProfile| {
+                                    Box::new(move |task_id: String, profile: AgentProfile| {
                                         set_tasks_for_profile.update(|tasks| {
                                             if let Some(t) = tasks.iter_mut().find(|t| t.id == task_id) {
                                                 t.profile = profile.clone();
                                             }
                                         });
-                                    }) as Box<dyn Fn(String, AgentProfile) + 'static>)
+                                    }) as Box<dyn Fn(String, AgentProfile) + 'static>
                                 }
                             />
                         }.into_any()
