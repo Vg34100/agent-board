@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(tree:*)"
+    ]
+  },
   "allowedTools": [
     "Read",
     "Write",
@@ -6,10 +12,5 @@
     "MultiEdit",
     "Bash"
   ],
-  "permissionMode": "acceptEdits",
-  "permissions": {
-    "allow": [
-      "Bash(cargo check:*)"
-    ]
-  }
+  "permissionMode": "acceptEdits"
 }

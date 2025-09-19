@@ -460,15 +460,6 @@ pub fn TaskSidebar(
                                     load_status(process_id.to_string());
                                     // CRITICAL: Also refresh process list to trigger UI re-render
                                     load_all_processes_for_status();
-
-                                    // Save processes to store for persistence
-                                    let processes_for_save = all_processes.get_untracked();
-                                    let save_args = serde_json::json!({ "processes": processes_for_save });
-                                    let _ = wasm_bindgen_futures::spawn_local(async move {
-                                        if let Ok(jsv) = serde_wasm_bindgen::to_value(&save_args) {
-                                            let _ = invoke("save_agent_processes", jsv).await;
-                                        }
-                                    });
                                 }
                             }
                         }

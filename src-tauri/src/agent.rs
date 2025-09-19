@@ -1055,11 +1055,25 @@ pub fn spawn_claude_process(
                                         }
                                     }
 
-                                    // Emit status update event
-                                    let _ = app_handle_monitor.emit("agent_process_status", serde_json::json!({
+                                    // Emit status update event with task_id
+                                    let final_status = if status.success() { "completed" } else { "failed" };
+                                    let task_id = proc_map.get(&process_id_monitor)
+                                        .map(|p| p.task_id.clone())
+                                        .unwrap_or_else(|| "unknown".to_string());
+
+                                    let status_payload = serde_json::json!({
                                         "process_id": process_id_monitor,
-                                        "status": if status.success() { "completed" } else { "failed" }
-                                    }));
+                                        "task_id": task_id,
+                                        "status": final_status
+                                    });
+
+                                    match app_handle_monitor.emit("agent_process_status", status_payload.clone()) {
+                                        Ok(_) => println!("✅ Emitted agent_process_status event: {} {} for task {}", process_id_monitor, final_status, task_id),
+                                        Err(e) => println!("❌ Failed to emit completion status event: {:?}", e)
+                                    };
+
+                                    // Also broadcast to HTTP clients
+                                    crate::web::broadcast_to_http("agent_process_status", status_payload);
 
                                     // Remove from child processes
                                     child_map.remove(&process_id_monitor);
@@ -1495,10 +1509,25 @@ pub fn spawn_codex_process(
                                             proc.end_time = Some(get_timestamp());
                                         }
                                     }
-                                    let _ = app_handle_monitor.emit("agent_process_status", serde_json::json!({
+                                    // Emit status update event with task_id
+                                    let final_status = if status.success() { "completed" } else { "failed" };
+                                    let task_id = proc_map.get(&process_id_monitor)
+                                        .map(|p| p.task_id.clone())
+                                        .unwrap_or_else(|| "unknown".to_string());
+
+                                    let status_payload = serde_json::json!({
                                         "process_id": process_id_monitor,
-                                        "status": if status.success() { "completed" } else { "failed" }
-                                    }));
+                                        "task_id": task_id,
+                                        "status": final_status
+                                    });
+
+                                    match app_handle_monitor.emit("agent_process_status", status_payload.clone()) {
+                                        Ok(_) => println!("✅ Emitted Codex agent_process_status event: {} {} for task {}", process_id_monitor, final_status, task_id),
+                                        Err(e) => println!("❌ Failed to emit Codex completion status event: {:?}", e)
+                                    };
+
+                                    // Also broadcast to HTTP clients
+                                    crate::web::broadcast_to_http("agent_process_status", status_payload);
                                     child_map.remove(&process_id_monitor);
                                 }
                                 Ok(None) => {
