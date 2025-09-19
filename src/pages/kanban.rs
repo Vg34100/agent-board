@@ -60,8 +60,9 @@ pub fn Kanban(project_id: String) -> impl IntoView {
     // The expect() will panic if the context wasn't provided, which helps catch setup errors
     let navigate = use_context::<WriteSignal<AppView>>().expect("navigate context");
 
-    // Project name signal
+    // Project name/path signals
     let (project_name, set_project_name) = signal(String::from("Loading..."));
+    let (project_path, set_project_path) = signal::<Option<String>>(None);
 
     // Load project name from store using proper Tauri commands
     {
@@ -76,6 +77,7 @@ pub fn Kanban(project_id: String) -> impl IntoView {
                             if let Some(stored_projects) = projects_wrapper.first() {
                                 if let Some(project) = stored_projects.iter().find(|p| p.id == project_id_clone) {
                                     set_project_name.set(project.name.clone());
+                                    set_project_path.set(Some(project.project_path.clone()));
                                 } else {
                                     set_project_name.set("Unknown Project".to_string());
                                 }
@@ -253,7 +255,66 @@ pub fn Kanban(project_id: String) -> impl IntoView {
         >
             <div class="main-content">
                 <header class="kanban-header">
+                <div class="kanban-header-left">
                 <h1>"Project: " {project_name}</h1>
+                <div class="project-subactions">
+                    <button class="action-btn files-btn" title="Open repository in File Explorer" on:click={
+                        let project_path_sig = project_path.clone();
+                        move |_| {
+                            if let Some(path) = project_path_sig.get_untracked() {
+                                let args = serde_json::json!({ "worktreePath": path });
+                                if let Ok(js) = to_value(&args) { spawn_local(async move { let _ = invoke("open_worktree_location", js).await; }); }
+                            } else { web_sys::console::error_1(&"No project path available".into()); }
+                        }
+                    }>"🖿"</button>
+                    <button class="action-btn ide-btn" title="Open repository in IDE" on:click={
+                        let project_path_sig = project_path.clone();
+                        move |_| {
+                            if let Some(path) = project_path_sig.get_untracked() {
+                                let args = serde_json::json!({ "worktreePath": path });
+                                if let Ok(js) = to_value(&args) { spawn_local(async move { let _ = invoke("open_worktree_in_ide", js).await; }); }
+                            } else { web_sys::console::error_1(&"No project path available".into()); }
+                        }
+                    }>"🟐"</button>
+                    <button class="action-btn edit-btn" title="Edit Project" on:click=open_edit_project_modal>"✎"</button>
+                    <button class="action-btn delete-btn" title="Delete Project" on:click={
+                        let project_id_for_delete = project_id.clone();
+                        let set_view = use_context::<WriteSignal<crate::app::AppView>>()
+                            .expect("AppView context should be available");
+                        move |_| {
+                            if web_sys::window()
+                                .map(|w| w.confirm_with_message(&format!("Are you sure you want to delete this project? This action cannot be undone.")).unwrap_or(false))
+                                .unwrap_or(false)
+                            {
+                                let project_id_to_delete = project_id_for_delete.clone();
+                                spawn_local(async move {
+                                    let empty_args = serde_json::json!({});
+                                    if let Ok(js_value) = to_value(&empty_args) {
+                                        match invoke("load_projects_data", js_value).await {
+                                            js_result if !js_result.is_undefined() => {
+                                                if let Ok(projects_wrapper) = serde_wasm_bindgen::from_value::<Vec<Vec<crate::models::Project>>>(js_result) {
+                                                    if let Some(mut projects) = projects_wrapper.into_iter().next() {
+                                                        projects.retain(|p| p.id != project_id_to_delete);
+                                                        let projects_json: Vec<serde_json::Value> = projects.into_iter()
+                                                            .filter_map(|project| serde_json::to_value(&project).ok())
+                                                            .collect();
+                                                        let save_args = serde_json::json!({ "projects": projects_json });
+                                                        if let Ok(save_js_value) = to_value(&save_args) {
+                                                            let _ = invoke("save_projects_data", save_js_value).await;
+                                                            set_view.set(crate::app::AppView::Projects);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => { web_sys::console::error_1(&"Failed to load projects for deletion".into()); }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }>"🞮"</button>
+                </div>
+                </div>
                 <div class="kanban-actions">
                     <button class="btn-secondary kanban-header-btn" on:click=back_to_projects>"🡄"</button>
                     <button class="btn-secondary kanban-header-btn" on:click=open_edit_project_modal>"✎"</button>
@@ -1113,3 +1174,15 @@ pub fn Kanban(project_id: String) -> impl IntoView {
         </div>
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
