@@ -28,6 +28,7 @@ pub fn load_project_data(
 }
 
 // Delete project and navigate back to projects view
+#[allow(dead_code)]
 pub fn delete_project(project_id: String, navigate: WriteSignal<AppView>) {
     if web_sys::window()
         .map(|w| w.confirm_with_message("Are you sure you want to delete this project? This action cannot be undone.").unwrap_or(false))

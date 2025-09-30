@@ -2,7 +2,7 @@ use leptos::task::spawn_local;
 use serde_wasm_bindgen::from_value;
 use crate::core::models::{Task, AgentProfile};
 use super::tauri_commands::*;
-use super::storage::{load_projects, save_tasks_async};
+use super::storage::load_projects;
 
 // Create a worktree for a task
 pub async fn create_worktree_for_task(project_id: &str, task_id: &str) -> Result<String, String> {

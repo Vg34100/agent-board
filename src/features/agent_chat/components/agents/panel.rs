@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::components::task_sidebar::AgentMessage;
+use crate::features::agent_chat::models::AgentMessage;
 
 #[component]
 pub fn AgentsPanel(

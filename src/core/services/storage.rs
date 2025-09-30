@@ -53,6 +53,7 @@ pub async fn load_projects() -> Result<Vec<Project>, String> {
 }
 
 // Save projects to storage
+#[allow(dead_code)]
 pub async fn save_projects(projects: &[Project]) -> Result<(), String> {
     let projects_json: Vec<serde_json::Value> = projects.iter()
         .filter_map(|project| {

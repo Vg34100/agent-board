@@ -3,7 +3,7 @@ use leptos::html::Dialog;
 use leptos::task::spawn_local;
 use crate::core::models::{Task, TaskStatus};
 use crate::core::services::load_tasks;
-use crate::components::{TaskModal, EditTaskModal, EditProjectModal, SettingsModal};
+use super::{TaskModal, EditTaskModal, EditProjectModal, SettingsModal};
 use super::{TaskCard, TaskMenu};
 use super::{KanbanHeader, KanbanBoard, KanbanColumn};
 use crate::features::kanban::services::{

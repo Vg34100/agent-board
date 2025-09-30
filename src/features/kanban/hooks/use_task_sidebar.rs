@@ -3,7 +3,7 @@ use leptos::html::Dialog;
 use std::sync::Arc;
 use crate::core::models::{Task, TaskStatus, AgentProfile};
 use crate::core::services::{open_worktree_location_async, open_worktree_in_ide_async};
-use crate::components::TaskSidebar;
+use crate::features::agent_chat::TaskSidebar;
 use crate::features::kanban::services::{delete_task, update_task_details, update_task_profile, update_task_status};
 
 // Hook for managing task sidebar state and callbacks

@@ -27,6 +27,7 @@ pub async fn load_projects_data() -> Result<JsValue, String> {
     execute_tauri_command("load_projects_data", serde_json::json!({})).await
 }
 
+#[allow(dead_code)]
 pub async fn save_projects_data(projects: Vec<serde_json::Value>) -> Result<JsValue, String> {
     execute_tauri_command("save_projects_data", serde_json::json!({ "projects": projects })).await
 }

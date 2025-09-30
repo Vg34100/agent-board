@@ -3,7 +3,7 @@ use leptos::prelude::*;
 
 #[component]
 pub fn TaskCard(
-    #[prop(into)] dropdown_open: MaybeSignal<bool>,
+    #[prop(into)] dropdown_open: Signal<bool>,
     on_click: Box<dyn Fn() + 'static>,
     children: Children,
 ) -> impl IntoView {

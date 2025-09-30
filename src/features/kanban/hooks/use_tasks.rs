@@ -7,6 +7,7 @@ use crate::features::kanban::services::{
     update_task_details, update_task_profile, cancel_task
 };
 
+#[allow(dead_code)]
 pub struct TasksHook {
     pub tasks: ReadSignal<Vec<Task>>,
     pub create_task: Box<dyn Fn(Task) + 'static>,
@@ -17,6 +18,7 @@ pub struct TasksHook {
     pub cancel_task: Box<dyn Fn(String) + 'static>,
 }
 
+#[allow(dead_code)]
 pub fn use_tasks(project_id: String) -> TasksHook {
     let tasks = RwSignal::new(Vec::<Task>::new());
 

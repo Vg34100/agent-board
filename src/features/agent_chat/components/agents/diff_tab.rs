@@ -152,7 +152,7 @@ pub fn DiffTab(
                                 let added = file.added;
                                 let removed = file.removed;
                                 let patch = file.patch.clone();
-                                let is_open = expanded.with(|s| s.contains(&key));
+                                let _is_open = expanded.with(|s| s.contains(&key));
                                 view! {
                                     <div class="diff-file-item">
                                         <button class="diff-file-header" on:click={

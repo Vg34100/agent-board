@@ -3,32 +3,13 @@ use leptos::task::spawn_local;
 use crate::core::models::{Task, TaskStatus, AgentProfile};
 use std::sync::Arc;
 use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use serde_wasm_bindgen::to_value;
 use js_sys;
 use web_sys;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentMessage {
-    pub id: String,
-    pub sender: String,
-    pub content: String,
-    pub timestamp: String,
-    pub message_type: String,
-    pub metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentProcess {
-    pub id: String,
-    pub task_id: String,
-    pub status: String,
-    pub start_time: String,
-    pub end_time: Option<String>,
-    pub messages: Vec<AgentMessage>,
-    pub raw_output: Vec<String>,
-}
+// Import data models from dedicated module
+pub use crate::features::agent_chat::models::AgentMessage;
 
 #[wasm_bindgen]
 extern "C" {
@@ -749,19 +730,19 @@ pub fn TaskSidebar(
                                         "agents" => {
                                             let messages = agent_messages.get();
                                             let processes = all_processes.get();
-                                            let has_messages = !messages.is_empty();
+                                            let _has_messages = !messages.is_empty();
 
                                             // Check if there are any processes for this task
                                             let current_task_processes: Vec<_> = processes.iter()
                                                 .filter(|proc| proc.get("task_id").and_then(|v| v.as_str()) == Some(&task.id))
                                                 .collect();
 
-                                            let has_processes = !current_task_processes.is_empty();
-                                            let latest_process_status = current_task_processes.last()
+                                            let _has_processes = !current_task_processes.is_empty();
+                                            let _latest_process_status = current_task_processes.last()
                                                 .and_then(|proc| proc.get("status").and_then(|v| v.as_str()));
 
                                             // Compact process chips for quick switching
-                                            let chips = current_task_processes.iter().map(|proc| {
+                                            let _chips = current_task_processes.iter().map(|proc| {
                                                 let pid = proc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                                 let status = proc.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
                                                 let kind = proc.get("kind").and_then(|v| v.as_str()).unwrap_or("");
@@ -779,7 +760,7 @@ pub fn TaskSidebar(
 
                                             view! {
                                                 <div class="agents-tab">
-                                                    <crate::components::agents::AgentsPanel
+                                                    <super::agents::AgentsPanel
                                                         task_id=task_id_for_closure.clone()
                                                         processes=all_processes.get()
                                                         messages_by_process=messages_by_process
@@ -973,8 +954,8 @@ pub fn TaskSidebar(
                                                 </div>
                                             }
                                         }.into_any(),
-                                        "diff" => view! { <crate::components::agents::DiffTab task_id=task_id_for_closure.clone() worktree_path=_task_worktree_path.clone().unwrap_or_default().into() /> }.into_any(),
-                                        "processes" => view! { <crate::components::agents::ProcessesTab processes=all_processes.get() task_id=task_id_for_closure.clone() /> }.into_any(),
+                                        "diff" => view! { <super::agents::DiffTab task_id=task_id_for_closure.clone() worktree_path=_task_worktree_path.clone().unwrap_or_default().into() /> }.into_any(),
+                                        "processes" => view! { <super::agents::ProcessesTab processes=all_processes.get() task_id=task_id_for_closure.clone() /> }.into_any(),
                                         _ => view! {}.into_any()
                                     } }
                                 }
