@@ -783,11 +783,12 @@ pub fn TaskSidebar(
                                                                 if let Ok(js_value) = to_value(&args) {
                                                                     match invoke("merge_worktree_to_base", js_value).await {
                                                                         js_result if !js_result.is_undefined() => {
-                                                                            if let Ok(result) = serde_wasm_bindgen::from_value::<Result<String, String>>(js_result) {
-                                                                                match result {
-                                                                                    Ok(success_msg) => {
-                                                                                        // Check if "up to date"
-                                                                                        if success_msg.contains("Already up to date") || success_msg.contains("up-to-date") || success_msg.contains("already up-to-date") {
+                                                                            web_sys::console::log_1(&"Got merge response from Tauri".into());
+                                                                            // Try to deserialize as plain string first (success case)
+                                                                            if let Ok(success_msg) = serde_wasm_bindgen::from_value::<String>(js_result.clone()) {
+                                                                                web_sys::console::log_1(&format!("Merge success_msg: {}", success_msg).into());
+                                                                                // Check if "up to date"
+                                                                                if success_msg.contains("Already up to date") || success_msg.contains("up-to-date") || success_msg.contains("already up-to-date") {
                                                                                             // Open commit dialog FIRST
                                                                                             if let Some(dialog_elem) = dialog.get() {
                                                                                                 let _ = dialog_elem.show_modal();
@@ -796,17 +797,19 @@ pub fn TaskSidebar(
                                                                                             web_sys::window()
                                                                                                 .and_then(|w| w.alert_with_message("⚠ No changes to merge.\n\nPlease commit your changes first, then try merging again.").ok());
                                                                                         } else {
+                                                                                            web_sys::console::log_1(&format!("Merge successful! Updating task {} to Done", task_id).into());
                                                                                             web_sys::window()
                                                                                                 .and_then(|w| w.alert_with_message(&format!("✓ Merge successful!\n\n{}", success_msg)).ok());
                                                                                             // Update task status to Done
-                                                                                            update_status(task_id, TaskStatus::Done);
+                                                                                            web_sys::console::log_1(&"Calling update_status...".into());
+                                                                                            update_status(task_id.clone(), TaskStatus::Done);
+                                                                                            web_sys::console::log_1(&"update_status called".into());
                                                                                         }
-                                                                                    }
-                                                                                    Err(error_msg) => {
-                                                                                        web_sys::window()
-                                                                                            .and_then(|w| w.alert_with_message(&format!("✗ Merge failed!\n\n{}", error_msg)).ok());
-                                                                                    }
-                                                                                }
+                                                                            } else {
+                                                                                // Failed to deserialize - likely an error
+                                                                                web_sys::console::error_1(&"Failed to deserialize merge response".into());
+                                                                                web_sys::window()
+                                                                                    .and_then(|w| w.alert_with_message("✗ Merge failed - unexpected response format").ok());
                                                                             }
                                                                         }
                                                                         _ => {
