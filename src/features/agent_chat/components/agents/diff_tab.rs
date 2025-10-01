@@ -16,6 +16,8 @@ struct DiffFile {
     added: u32,
     removed: u32,
     patch: String,
+    #[serde(default)]
+    committed: bool,
 }
 
 fn render_patch(patch: &str) -> Vec<leptos::prelude::AnyView> {
@@ -123,7 +125,13 @@ pub fn DiffTab(
                         let resp = invoke("get_worktree_diffs", js).await;
                         if !resp.is_undefined() {
                             match serde_wasm_bindgen::from_value::<Vec<DiffFile>>(resp) {
-                                Ok(files) => { web_sys::console::log_1(&format!("[DiffTab] got {} files", files.len()).into()); set_diffs.set(files) },
+                                Ok(files) => {
+                                    web_sys::console::log_1(&format!("[DiffTab] got {} files", files.len()).into());
+                                    for f in &files {
+                                        web_sys::console::log_1(&format!("[DiffTab] file: {} committed={}", f.path, f.committed).into());
+                                    }
+                                    set_diffs.set(files)
+                                },
                                 Err(e) => set_error.set(Some(format!("Failed to parse diffs: {}", e))),
                             }
                         }
@@ -152,6 +160,7 @@ pub fn DiffTab(
                                 let added = file.added;
                                 let removed = file.removed;
                                 let patch = file.patch.clone();
+                                let is_committed = file.committed;
                                 let _is_open = expanded.with(|s| s.contains(&key));
                                 view! {
                                     <div class="diff-file-item">
@@ -165,6 +174,11 @@ pub fn DiffTab(
                                             }
                                         }>
                                             <span class="file-name">{path_display}</span>
+                                            {if is_committed {
+                                                view! { <span class="committed-badge" title="Already committed">"C"</span> }.into_any()
+                                            } else {
+                                                view! {}.into_any()
+                                            }}
                                             <span class="chip add">{format!("+{}", added)}</span>
                                             <span class="chip del">{format!("-{}", removed)}</span>
                                         </button>

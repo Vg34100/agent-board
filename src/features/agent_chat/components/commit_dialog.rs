@@ -88,19 +88,19 @@ pub fn CommitDialog(
                 }
             });
 
-            // Load diffs
+            // Load uncommitted diffs only
             spawn_local(async move {
                 let args = serde_json::json!({ "worktreePath": worktree2 });
                 if let Ok(js_value) = to_value(&args) {
-                    match invoke("get_worktree_diffs", js_value).await {
+                    match invoke("get_worktree_uncommitted_diffs", js_value).await {
                         js_result if !js_result.is_undefined() => {
                             if let Ok(diff_list) = serde_wasm_bindgen::from_value::<Vec<DiffFile>>(js_result) {
-                                web_sys::console::log_1(&format!("Loaded {} diffs", diff_list.len()).into());
+                                web_sys::console::log_1(&format!("Loaded {} uncommitted diffs", diff_list.len()).into());
                                 set_diffs.set(diff_list);
                             }
                         }
                         _ => {
-                            web_sys::console::error_1(&"Failed to fetch worktree diffs".into());
+                            web_sys::console::error_1(&"Failed to fetch worktree uncommitted diffs".into());
                         }
                     }
                 }

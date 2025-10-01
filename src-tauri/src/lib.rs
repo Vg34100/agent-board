@@ -585,7 +585,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, list_git_branches, merge_worktree_to_base, get_worktree_status, commit_worktree_changes, get_file_diff, start_agent_process, send_agent_message, send_agent_message_with_profile, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_process_agent_messages, save_process_agent_messages, load_agent_processes, save_agent_processes, get_worktree_diffs, is_dev_mode])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, list_git_branches, merge_worktree_to_base, get_worktree_status, commit_worktree_changes, get_file_diff, start_agent_process, send_agent_message, send_agent_message_with_profile, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_process_agent_messages, save_process_agent_messages, load_agent_processes, save_agent_processes, get_worktree_diffs, get_worktree_uncommitted_diffs, is_dev_mode])
         .setup(|app| {
             // Bind to preferred fixed port, with fallback to a random high port if occupied
             let listener = match std::net::TcpListener::bind(("0.0.0.0", 17872)) {
@@ -653,4 +653,9 @@ pub fn run() {
 #[tauri::command]
 async fn get_worktree_diffs(worktree_path: String) -> Result<Vec<git::DiffFile>, String> {
     git::get_worktree_diffs(&worktree_path)
+}
+
+#[tauri::command]
+async fn get_worktree_uncommitted_diffs(worktree_path: String) -> Result<Vec<git::DiffFile>, String> {
+    git::get_worktree_uncommitted_diffs(&worktree_path)
 }
