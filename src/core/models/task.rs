@@ -12,6 +12,10 @@ fn default_agent_profile() -> AgentProfile {
     AgentProfile::ClaudeCode
 }
 
+fn default_base_branch() -> String {
+    "main".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskStatus {
     ToDo,
@@ -54,6 +58,8 @@ pub struct Task {
     pub worktree_path: Option<String>,
     #[serde(default = "default_agent_profile")]
     pub profile: AgentProfile,
+    #[serde(default = "default_base_branch")]
+    pub base_branch: String,
 }
 
 impl Task {
@@ -68,6 +74,7 @@ impl Task {
             created_at: Utc::now().to_rfc3339(),
             worktree_path: None,
             profile: default_agent_profile(),
+            base_branch: default_base_branch(),
         }
     }
 
@@ -86,7 +93,11 @@ impl Task {
     pub fn set_worktree_path(&mut self, path: Option<String>) {
         self.worktree_path = path;
     }
-    
+
+    pub fn set_base_branch(&mut self, branch: String) {
+        self.base_branch = branch;
+    }
+
     // Debug function to test serialization
     pub fn test_serialization(&self) -> Result<serde_json::Value, String> {
         serde_json::to_value(self).map_err(|e| e.to_string())

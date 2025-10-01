@@ -856,18 +856,19 @@ pub fn spawn_claude_process(
         crate::web::broadcast_to_http("agent_process_status", status_payload);
     }
 
-    // Create a temporary config file to set permissions  
-    let config_dir = format!("{}/.claude", worktree_path);
-    std::fs::create_dir_all(&config_dir).ok();
-    let config_path = format!("{}/settings.local.json", config_dir);
-    let config_content = serde_json::json!({
-        "permissionMode": "acceptEdits",
-        "allowedTools": ["Read", "Write", "Edit", "MultiEdit", "Bash"]
-    });
-    if let Ok(config_str) = serde_json::to_string_pretty(&config_content) {
-        std::fs::write(&config_path, config_str).ok();
-        println!("Created Claude config at: {}", config_path);
-    }
+    // Create a temporary config file to set permissions
+    // COMMENTED OUT: Temporarily disabled
+    // let config_dir = format!("{}/.claude", worktree_path);
+    // std::fs::create_dir_all(&config_dir).ok();
+    // let config_path = format!("{}/settings.local.json", config_dir);
+    // let config_content = serde_json::json!({
+    //     "permissionMode": "acceptEdits",
+    //     "allowedTools": ["Read", "Write", "Edit", "MultiEdit", "Bash"]
+    // });
+    // if let Ok(config_str) = serde_json::to_string_pretty(&config_content) {
+    //     std::fs::write(&config_path, config_str).ok();
+    //     println!("Created Claude config at: {}", config_path);
+    // }
 
     // Spawn the actual Claude Code process
     match cmd.spawn() {

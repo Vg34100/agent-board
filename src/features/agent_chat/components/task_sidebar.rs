@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos::html::Dialog;
 use leptos::task::spawn_local;
 use crate::core::models::{Task, TaskStatus, AgentProfile};
 use std::sync::Arc;
@@ -11,6 +12,9 @@ use web_sys;
 // Import data models from dedicated module
 pub use crate::features::agent_chat::models::AgentMessage;
 
+// Import CommitDialog
+use crate::features::agent_chat::components::CommitDialog;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
@@ -20,6 +24,7 @@ extern "C" {
 #[component]
 pub fn TaskSidebar(
     #[prop(into)] task: Task,
+    #[prop(optional)] project_path: Option<String>,
     #[prop(into)] selected_task: WriteSignal<Option<String>>,
     #[prop(into)] on_edit: Box<dyn Fn(Task) + 'static>, // Callback to trigger edit modal
     #[prop(into)] on_update_status: Arc<dyn Fn(String, TaskStatus) + Send + Sync + 'static>,
@@ -27,10 +32,14 @@ pub fn TaskSidebar(
     #[prop(into)] on_open_worktree: Option<Box<dyn Fn(String) + 'static>>,
     #[prop(into)] on_open_ide: Option<Box<dyn Fn(String) + 'static>>,
     on_update_profile: Box<dyn Fn(String, AgentProfile) + 'static>,
+    on_update_base_branch: Box<dyn Fn(String, String) + 'static>,
     #[prop(into, optional)] _active_process_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // State for showing/hiding full description
     let (show_full_description, set_show_full_description) = signal(false);
+
+    // Commit dialog ref
+    let commit_dialog_ref: NodeRef<Dialog> = NodeRef::new();
 
     // Agent process state
     let (agent_messages, set_agent_messages) = signal(Vec::<AgentMessage>::new());
@@ -51,6 +60,47 @@ pub fn TaskSidebar(
 
     // Local selected profile (default from task)
     let (selected_profile, set_selected_profile) = signal(task.profile.clone());
+
+    // Local selected base branch (default from task)
+    let (selected_base_branch, set_selected_base_branch) = signal(task.base_branch.clone());
+
+    // Available branches from git
+    let (available_branches, set_available_branches) = signal(Vec::<String>::new());
+
+    // Fetch git branches on mount and auto-select first branch if "main" doesn't exist
+    {
+        let project_path_for_branches = project_path.clone();
+        let set_branches = set_available_branches.clone();
+        let set_selected = set_selected_base_branch.clone();
+        let current_base = task.base_branch.clone();
+        spawn_local(async move {
+            if let Some(repo_path) = project_path_for_branches {
+                let args = serde_json::json!({ "repoPath": repo_path });
+                if let Ok(js_value) = to_value(&args) {
+                    match invoke("list_git_branches", js_value).await {
+                        js_result if !js_result.is_undefined() => {
+                            if let Ok(branches) = serde_wasm_bindgen::from_value::<Vec<String>>(js_result) {
+                                web_sys::console::log_1(&format!("Fetched {} branches", branches.len()).into());
+
+                                // If the current base_branch is the default "main" but not in the list,
+                                // set it to the first available branch (will be persisted when user clicks Start)
+                                if current_base == "main" && !branches.contains(&"main".to_string()) && !branches.is_empty() {
+                                    let first_branch = branches[0].clone();
+                                    web_sys::console::log_1(&format!("Defaulting base branch to first branch: {}", first_branch).into());
+                                    set_selected.set(first_branch);
+                                }
+
+                                set_branches.set(branches);
+                            }
+                        }
+                        _ => {
+                            web_sys::console::error_1(&"Failed to fetch branches".into());
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     // On mount: scroll agent sessions to bottom once, to show latest messages
     {
@@ -547,9 +597,28 @@ pub fn TaskSidebar(
                                     <div class="attempt-config">
                                         <div class="config-row">
                                             <label>"Base Branch:"</label>
-                                            <select>
-                                                <option value="main">"main"</option>
-                                                <option value="develop">"develop"</option>
+                                            <select on:change=move |ev| {
+                                                let value = event_target_value(&ev);
+                                                set_selected_base_branch.set(value);
+                                            }>
+                                                {move || {
+                                                    let branches = available_branches.get();
+                                                    let selected = selected_base_branch.get();
+                                                    if branches.is_empty() {
+                                                        view! {
+                                                            <option value="main" selected=move || selected == "main">"main"</option>
+                                                        }.into_any()
+                                                    } else {
+                                                        branches.iter().map(|branch| {
+                                                            let branch_value = branch.clone();
+                                                            let branch_display = branch.clone();
+                                                            let is_selected = branch == &selected;
+                                                            view! {
+                                                                <option value=branch_value selected=is_selected>{branch_display}</option>
+                                                            }
+                                                        }).collect_view().into_any()
+                                                    }
+                                                }}
                                             </select>
                                         </div>
                                         <div class="config-row">
@@ -566,21 +635,15 @@ pub fn TaskSidebar(
                                                 <option value="codex" selected=matches!(selected_profile.get(), AgentProfile::Codex)>"Codex"</option>
                                             </select>
                                         </div>
-                                        <div class="config-row">
-                                            <label>"Variant:"</label>
-                                            <select>
-                                                <option value="standard">"Standard"</option>
-                                                <option value="focused">"Focused"</option>
-                                            </select>
-                                        </div>
                                         <button
                                             class="start-btn"
                                             on:click={
                                                 let task_id_for_start = task_id.clone();
                                                 let on_update_status = on_update_status.clone();
                                                 move |_| {
-                                                    // Persist selected profile first if callback is provided
+                                                    // Persist selected profile and base branch before starting
                                                     on_update_profile(task_id_for_start.clone(), selected_profile.get_untracked());
+                                                    on_update_base_branch(task_id_for_start.clone(), selected_base_branch.get_untracked());
                                                     on_update_status(task_id_for_start.clone(), TaskStatus::InProgress);
                                                 }
                                             }
@@ -592,8 +655,8 @@ pub fn TaskSidebar(
                                 <div class="attempt-status">
                                     <h3>"Attempt 1/1"</h3>
                                     <div class="status-info">
-                                        <span class="profile-info">"Profile: default"</span>
-                                        <span class="branch-info">{format!("Branch: task/{}", task.id)}</span>
+                                        <span class="profile-info">{format!("Profile: {:?}", task.profile)}</span>
+                                        <span class="branch-info">{format!("Branch: task/{} (from {})", task.id, task.base_branch)}</span>
                                         <span class="diff-info">"Diffs: " <span class="diff-added">"+0"</span> " " <span class="diff-removed">"-0"</span></span>
                                     </div>
                                 </div>
@@ -602,6 +665,11 @@ pub fn TaskSidebar(
                                 {task.worktree_path.as_ref().map(|worktree_path| {
                                     let worktree_path_for_files = worktree_path.clone();
                                     let worktree_path_for_ide = worktree_path.clone();
+                                    let worktree_path_for_merge = worktree_path.clone();
+                                    let base_branch_for_merge = task.base_branch.clone();
+                                    let task_id_for_merge = task.id.clone();
+                                    let project_path_for_merge = project_path.clone();
+                                    let on_update_status_for_merge = on_update_status.clone();
                                     view! {
                                         <div class="worktree-actions">
                                             <button
@@ -633,7 +701,21 @@ pub fn TaskSidebar(
                                                 "🟐"
                                             </button>
 
-                                            {/* Git Actions - TODO: Implement functionality */}
+                                            {/* Git Actions */}
+                                            <button
+                                                class="action-btn commit-btn"
+                                                title="Commit Changes"
+                                                on:click={
+                                                    let dialog = commit_dialog_ref.clone();
+                                                    move |_| {
+                                                        if let Some(dialog) = dialog.get() {
+                                                            let _ = dialog.show_modal();
+                                                        }
+                                                    }
+                                                }
+                                            >
+                                                "🡹"
+                                            </button>
                                             <button
                                                 class="action-btn pr-btn"
                                                 title="Create Pull Request (disables worktree)"
@@ -643,8 +725,103 @@ pub fn TaskSidebar(
                                             </button>
                                             <button
                                                 class="action-btn merge-btn"
-                                                title="Merge to Main"
-                                                disabled=true
+                                                title={format!("Merge to {}", base_branch_for_merge)}
+                                                on:click={
+                                                    let worktree = worktree_path_for_merge.clone();
+                                                    let base_br = base_branch_for_merge.clone();
+                                                    let proj_path = project_path_for_merge.clone();
+                                                    let task_id = task_id_for_merge.clone();
+                                                    let update_status = on_update_status_for_merge.clone();
+                                                    let dialog = commit_dialog_ref.clone();
+                                                    move |_| {
+                                                        let worktree = worktree.clone();
+                                                        let base_br = base_br.clone();
+                                                        let task_id = task_id.clone();
+                                                        let update_status = update_status.clone();
+                                                        let proj_path = proj_path.clone();
+                                                        let dialog = dialog.clone();
+
+                                                        // Show confirmation dialog
+                                                        let confirm_msg = format!("Merge task branch to '{}'?\n\nThis will merge your changes into the base branch.", base_br);
+                                                        if !web_sys::window()
+                                                            .and_then(|w| w.confirm_with_message(&confirm_msg).ok())
+                                                            .unwrap_or(false) {
+                                                            return;
+                                                        }
+
+                                                        spawn_local(async move {
+                                                            if let Some(proj_path) = proj_path {
+                                                                // First check if there are uncommitted changes
+                                                                let status_args = serde_json::json!({ "worktreePath": worktree.clone() });
+                                                                if let Ok(status_js) = to_value(&status_args) {
+                                                                    match invoke("get_worktree_status", status_js).await {
+                                                                        status_result if !status_result.is_undefined() => {
+                                                                            if let Ok(files) = serde_wasm_bindgen::from_value::<Vec<serde_json::Value>>(status_result) {
+                                                                                if !files.is_empty() {
+                                                                                    // There are uncommitted changes - open commit dialog
+                                                                                    web_sys::console::log_1(&format!("Found {} uncommitted files before merge", files.len()).into());
+                                                                                    if let Some(dialog_elem) = dialog.get() {
+                                                                                        let _ = dialog_elem.show_modal();
+                                                                                    }
+                                                                                    web_sys::window()
+                                                                                        .and_then(|w| w.alert_with_message("⚠ Uncommitted changes detected.\n\nPlease commit your changes first, then try merging again.").ok());
+                                                                                    return;
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        _ => {}
+                                                                    }
+                                                                }
+
+                                                                // No uncommitted changes, proceed with merge
+                                                                let args = serde_json::json!({
+                                                                    "worktreePath": worktree,
+                                                                    "baseBranch": base_br,
+                                                                    "projectPath": proj_path
+                                                                });
+
+                                                                if let Ok(js_value) = to_value(&args) {
+                                                                    match invoke("merge_worktree_to_base", js_value).await {
+                                                                        js_result if !js_result.is_undefined() => {
+                                                                            if let Ok(result) = serde_wasm_bindgen::from_value::<Result<String, String>>(js_result) {
+                                                                                match result {
+                                                                                    Ok(success_msg) => {
+                                                                                        // Check if "up to date"
+                                                                                        if success_msg.contains("Already up to date") || success_msg.contains("up-to-date") || success_msg.contains("already up-to-date") {
+                                                                                            // Open commit dialog FIRST
+                                                                                            if let Some(dialog_elem) = dialog.get() {
+                                                                                                let _ = dialog_elem.show_modal();
+                                                                                            }
+                                                                                            // Then show alert
+                                                                                            web_sys::window()
+                                                                                                .and_then(|w| w.alert_with_message("⚠ No changes to merge.\n\nPlease commit your changes first, then try merging again.").ok());
+                                                                                        } else {
+                                                                                            web_sys::window()
+                                                                                                .and_then(|w| w.alert_with_message(&format!("✓ Merge successful!\n\n{}", success_msg)).ok());
+                                                                                            // Update task status to Done
+                                                                                            update_status(task_id, TaskStatus::Done);
+                                                                                        }
+                                                                                    }
+                                                                                    Err(error_msg) => {
+                                                                                        web_sys::window()
+                                                                                            .and_then(|w| w.alert_with_message(&format!("✗ Merge failed!\n\n{}", error_msg)).ok());
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        _ => {
+                                                                            web_sys::window()
+                                                                                .and_then(|w| w.alert_with_message("Failed to invoke merge command").ok());
+                                                                        }
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                web_sys::window()
+                                                                    .and_then(|w| w.alert_with_message("Project path not available").ok());
+                                                            }
+                                                        });
+                                                    }
+                                                }
                                             >
                                                 "🡺" {/* Alternative: 🞈 */}
                                             </button>
@@ -966,5 +1143,15 @@ pub fn TaskSidebar(
                 }}
             </div>
         </div>
+
+        {/* Commit Dialog */}
+        <CommitDialog
+            dialog_ref=commit_dialog_ref
+            worktree_path=task.worktree_path.clone().unwrap_or_default()
+            on_commit_success=move || {
+                // Refresh the sidebar or reload data after successful commit
+                web_sys::console::log_1(&"Commit successful, refreshing...".into());
+            }
+        />
     }
 }

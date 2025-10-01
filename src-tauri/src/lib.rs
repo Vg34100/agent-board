@@ -329,6 +329,89 @@ async fn list_app_worktrees(app: tauri::AppHandle) -> Result<Vec<String>, String
     }
 }
 
+#[tauri::command]
+async fn list_git_branches(repo_path: String) -> Result<Vec<String>, String> {
+    println!("Tauri command: list_git_branches called for repo: {}", repo_path);
+    match git::list_git_branches(&repo_path) {
+        Ok(branches) => {
+            println!("Tauri command: list_git_branches succeeded, found {} branches", branches.len());
+            Ok(branches)
+        },
+        Err(e) => {
+            println!("Tauri command: list_git_branches failed with error: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn merge_worktree_to_base(worktree_path: String, base_branch: String, project_path: String) -> Result<String, String> {
+    println!("Tauri command: merge_worktree_to_base called");
+    println!("  worktree_path: {}", worktree_path);
+    println!("  base_branch: {}", base_branch);
+    println!("  project_path: {}", project_path);
+
+    match git::merge_to_base_branch(&worktree_path, &base_branch, &project_path) {
+        Ok(message) => {
+            println!("Tauri command: merge succeeded: {}", message);
+            Ok(message)
+        },
+        Err(e) => {
+            println!("Tauri command: merge failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_worktree_status(worktree_path: String) -> Result<Vec<git::FileStatus>, String> {
+    println!("Tauri command: get_worktree_status called for: {}", worktree_path);
+    match git::get_worktree_status(&worktree_path) {
+        Ok(files) => {
+            println!("Tauri command: get_worktree_status succeeded, found {} files", files.len());
+            Ok(files)
+        },
+        Err(e) => {
+            println!("Tauri command: get_worktree_status failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn commit_worktree_changes(worktree_path: String, files: Vec<String>, message: String) -> Result<String, String> {
+    println!("Tauri command: commit_worktree_changes called");
+    println!("  worktree_path: {}", worktree_path);
+    println!("  files: {:?}", files);
+    println!("  message: {}", message);
+
+    match git::commit_worktree_changes(&worktree_path, files, &message) {
+        Ok(commit_hash) => {
+            println!("Tauri command: commit succeeded: {}", commit_hash);
+            Ok(commit_hash)
+        },
+        Err(e) => {
+            println!("Tauri command: commit failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_file_diff(worktree_path: String, file_path: String) -> Result<String, String> {
+    println!("Tauri command: get_file_diff called for file: {}", file_path);
+    match git::get_file_diff(&worktree_path, &file_path) {
+        Ok(diff) => {
+            println!("Tauri command: get_file_diff succeeded");
+            Ok(diff)
+        },
+        Err(e) => {
+            println!("Tauri command: get_file_diff failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
 // Agent Commands
 
 #[tauri::command]
@@ -502,7 +585,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, start_agent_process, send_agent_message, send_agent_message_with_profile, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_process_agent_messages, save_process_agent_messages, load_agent_processes, save_agent_processes, get_worktree_diffs, is_dev_mode])
+        .invoke_handler(tauri::generate_handler![greet, list_directory, get_parent_directory, get_home_directory, create_project_directory, initialize_git_repo, validate_git_repository, load_projects_data, save_projects_data, load_tasks_data, save_tasks_data, create_task_worktree, remove_task_worktree, open_worktree_location, open_worktree_in_ide, list_app_worktrees, list_git_branches, merge_worktree_to_base, get_worktree_status, commit_worktree_changes, get_file_diff, start_agent_process, send_agent_message, send_agent_message_with_profile, get_process_list, get_process_details, get_agent_messages, kill_agent_process, load_agent_settings, save_agent_settings, load_task_agent_messages, save_task_agent_messages, load_process_agent_messages, save_process_agent_messages, load_agent_processes, save_agent_processes, get_worktree_diffs, is_dev_mode])
         .setup(|app| {
             // Bind to preferred fixed port, with fallback to a random high port if occupied
             let listener = match std::net::TcpListener::bind(("0.0.0.0", 17872)) {

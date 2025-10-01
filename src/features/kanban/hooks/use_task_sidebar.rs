@@ -4,11 +4,12 @@ use std::sync::Arc;
 use crate::core::models::{Task, TaskStatus, AgentProfile};
 use crate::core::services::{open_worktree_location_async, open_worktree_in_ide_async};
 use crate::features::agent_chat::TaskSidebar;
-use crate::features::kanban::services::{delete_task, update_task_details, update_task_profile, update_task_status};
+use crate::features::kanban::services::{delete_task, update_task_details, update_task_profile, update_task_base_branch, update_task_status};
 
 // Hook for managing task sidebar state and callbacks
 pub fn use_task_sidebar(
     project_id: String,
+    project_path: ReadSignal<Option<String>>,
     tasks: RwSignal<Vec<Task>>,
     selected_task: ReadSignal<Option<String>>,
     set_selected_task: WriteSignal<Option<String>>,
@@ -22,6 +23,7 @@ pub fn use_task_sidebar(
                 create_task_sidebar(
                     task,
                     project_id.clone(),
+                    project_path.get(),
                     tasks,
                     set_selected_task,
                     edit_dialog_ref,
@@ -40,6 +42,7 @@ pub fn use_task_sidebar(
 fn create_task_sidebar(
     task: Task,
     project_id: String,
+    project_path: Option<String>,
     tasks_signal: RwSignal<Vec<Task>>,
     selected_task_signal: WriteSignal<Option<String>>,
     edit_dialog_ref: NodeRef<Dialog>,
@@ -92,18 +95,46 @@ fn create_task_sidebar(
         }) as Box<dyn Fn(String, AgentProfile) + 'static>
     };
 
-    view! {
-        <TaskSidebar
-            task=task.clone()
-            selected_task=selected_task_signal
-            on_edit=sidebar_edit_callback
-            on_update_status=sidebar_status_callback
-            on_delete=sidebar_delete_callback
-            on_open_worktree=Some(sidebar_worktree_callback)
-            on_open_ide=Some(sidebar_ide_callback)
-            on_update_profile=sidebar_profile_callback
-        />
-    }
+    let sidebar_base_branch_callback = {
+        let project_id_clone = project_id.clone();
+        let tasks_signal_clone = tasks_signal.clone();
+        Box::new(move |task_id: String, base_branch: String| {
+            update_task_base_branch(task_id, base_branch, project_id_clone.clone(), tasks_signal_clone);
+        }) as Box<dyn Fn(String, String) + 'static>
+    };
+
+    let sidebar_view = if let Some(path) = project_path {
+        view! {
+            <TaskSidebar
+                task=task.clone()
+                project_path=path
+                selected_task=selected_task_signal
+                on_edit=sidebar_edit_callback
+                on_update_status=sidebar_status_callback
+                on_delete=sidebar_delete_callback
+                on_open_worktree=Some(sidebar_worktree_callback)
+                on_open_ide=Some(sidebar_ide_callback)
+                on_update_profile=sidebar_profile_callback
+                on_update_base_branch=sidebar_base_branch_callback
+            />
+        }
+    } else {
+        view! {
+            <TaskSidebar
+                task=task.clone()
+                selected_task=selected_task_signal
+                on_edit=sidebar_edit_callback
+                on_update_status=sidebar_status_callback
+                on_delete=sidebar_delete_callback
+                on_open_worktree=Some(sidebar_worktree_callback)
+                on_open_ide=Some(sidebar_ide_callback)
+                on_update_profile=sidebar_profile_callback
+                on_update_base_branch=sidebar_base_branch_callback
+            />
+        }
+    };
+
+    sidebar_view
 }
 
 // Create edit task callback for the sidebar

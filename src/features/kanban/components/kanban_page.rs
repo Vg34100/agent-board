@@ -92,6 +92,7 @@ pub fn KanbanPage(project_id: String) -> impl IntoView {
     // Use task sidebar hook
     let task_sidebar = use_task_sidebar(
         project_id_for_sidebar.clone(),
+        project_path,
         tasks,
         selected_task,
         set_selected_task,

@@ -406,11 +406,354 @@ pub fn open_worktree_location(worktree_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Merges a task branch into the base branch
+///
+/// # Arguments
+/// * `worktree_path` - Path to the worktree
+/// * `base_branch` - Name of the base branch to merge into
+/// * `project_path` - Path to the main project repository
+///
+/// # Returns
+/// * `Ok(String)` - Success message with merge details
+/// * `Err(String)` - Error message if merge fails (including conflict details)
+pub fn merge_to_base_branch(worktree_path: &str, base_branch: &str, project_path: &str) -> Result<String, String> {
+    println!("Merging worktree at {} to base branch {}", worktree_path, base_branch);
+
+    // Extract task_id from worktree path to get branch name
+    let worktree_path_obj = Path::new(worktree_path);
+    let task_id = worktree_path_obj
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Failed to extract task ID from worktree path".to_string())?;
+
+    let task_branch = format!("task/{}", task_id);
+    println!("Task branch: {}", task_branch);
+
+    // Open the main repository
+    let repo = Repository::open(project_path)
+        .map_err(|e| format!("Failed to open repository: {}", e))?;
+
+    // Get current branch before switching
+    let current_head = repo.head()
+        .map_err(|e| format!("Failed to get current HEAD: {}", e))?;
+    let current_branch_name = current_head.shorthand().unwrap_or("unknown");
+    println!("Current branch: {}", current_branch_name);
+
+    // Checkout the base branch
+    println!("Checking out base branch: {}", base_branch);
+    let base_branch_ref = repo.find_branch(base_branch, git2::BranchType::Local)
+        .map_err(|e| format!("Failed to find base branch '{}': {}", base_branch, e))?;
+
+    let base_commit = base_branch_ref.get().peel_to_commit()
+        .map_err(|e| format!("Failed to get base branch commit: {}", e))?;
+
+    repo.checkout_tree(base_commit.as_object(), None)
+        .map_err(|e| format!("Failed to checkout base branch: {}", e))?;
+
+    repo.set_head(&format!("refs/heads/{}", base_branch))
+        .map_err(|e| format!("Failed to set HEAD to base branch: {}", e))?;
+
+    println!("Successfully checked out {}", base_branch);
+
+    // Find the task branch
+    let task_branch_ref = repo.find_branch(&task_branch, git2::BranchType::Local)
+        .map_err(|e| format!("Failed to find task branch '{}': {}", task_branch, e))?;
+
+    let task_commit = task_branch_ref.get().peel_to_commit()
+        .map_err(|e| format!("Failed to get task branch commit: {}", e))?;
+
+    // Perform the merge
+    println!("Merging {} into {}", task_branch, base_branch);
+    let mut merge_options = git2::MergeOptions::new();
+    let annotated_commit = repo.find_annotated_commit(task_commit.id())
+        .map_err(|e| format!("Failed to create annotated commit: {}", e))?;
+
+    let (merge_analysis, _merge_pref) = repo.merge_analysis(&[&annotated_commit])
+        .map_err(|e| format!("Failed to analyze merge: {}", e))?;
+
+    if merge_analysis.is_up_to_date() {
+        return Ok("Already up to date, no merge needed".to_string());
+    }
+
+    if merge_analysis.is_fast_forward() {
+        println!("Fast-forward merge possible");
+        // Fast-forward merge
+        let target_oid = annotated_commit.id();
+        let mut reference = repo.find_reference(&format!("refs/heads/{}", base_branch))
+            .map_err(|e| format!("Failed to find base branch reference: {}", e))?;
+
+        reference.set_target(target_oid, &format!("Fast-forward merge {} into {}", task_branch, base_branch))
+            .map_err(|e| format!("Failed to fast-forward: {}", e))?;
+
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+            .map_err(|e| format!("Failed to checkout after fast-forward: {}", e))?;
+
+        return Ok(format!("Successfully fast-forward merged {} into {}", task_branch, base_branch));
+    }
+
+    // Normal merge
+    println!("Performing normal merge");
+    repo.merge(&[&annotated_commit], Some(&mut merge_options), None)
+        .map_err(|e| format!("Merge failed: {}", e))?;
+
+    // Check for conflicts
+    let mut index = repo.index()
+        .map_err(|e| format!("Failed to get repository index: {}", e))?;
+
+    if index.has_conflicts() {
+        println!("Merge has conflicts");
+
+        // Collect conflicted files
+        let mut conflicted_files = Vec::new();
+        for entry in index.conflicts()
+            .map_err(|e| format!("Failed to get conflicts: {}", e))?
+            .flatten() {
+            if let Some(our) = entry.our {
+                if let Ok(path) = std::str::from_utf8(&our.path) {
+                    conflicted_files.push(path.to_string());
+                }
+            }
+        }
+
+        // Abort the merge
+        repo.cleanup_state()
+            .map_err(|e| format!("Failed to cleanup merge state: {}", e))?;
+
+        return Err(format!("Merge conflict in files: {}", conflicted_files.join(", ")));
+    }
+
+    // Commit the merge
+    println!("Committing merge");
+    let signature = repo.signature()
+        .map_err(|e| format!("Failed to get signature: {}", e))?;
+
+    let tree_id = index.write_tree()
+        .map_err(|e| format!("Failed to write tree: {}", e))?;
+    let tree = repo.find_tree(tree_id)
+        .map_err(|e| format!("Failed to find tree: {}", e))?;
+
+    let base_commit_obj = repo.find_commit(base_commit.id())
+        .map_err(|e| format!("Failed to find base commit: {}", e))?;
+    let task_commit_obj = repo.find_commit(task_commit.id())
+        .map_err(|e| format!("Failed to find task commit: {}", e))?;
+
+    let merge_commit_oid = repo.commit(
+        Some(&format!("refs/heads/{}", base_branch)),
+        &signature,
+        &signature,
+        &format!("Merge branch '{}' into {}", task_branch, base_branch),
+        &tree,
+        &[&base_commit_obj, &task_commit_obj],
+    ).map_err(|e| format!("Failed to create merge commit: {}", e))?;
+
+    // Cleanup merge state
+    repo.cleanup_state()
+        .map_err(|e| format!("Failed to cleanup merge state: {}", e))?;
+
+    println!("Merge successful, commit: {}", merge_commit_oid);
+    Ok(format!("Successfully merged {} into {} (commit: {})", task_branch, base_branch, merge_commit_oid))
+}
+
+/// File status information
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct FileStatus {
+    pub path: String,
+    pub status: String, // "modified", "untracked", "deleted", etc.
+}
+
+/// Gets the status of files in a worktree
+///
+/// # Arguments
+/// * `worktree_path` - Path to the worktree
+///
+/// # Returns
+/// * `Ok(Vec<FileStatus>)` - List of files with their status
+/// * `Err(String)` - Error message if status check fails
+pub fn get_worktree_status(worktree_path: &str) -> Result<Vec<FileStatus>, String> {
+    println!("Getting worktree status for: {}", worktree_path);
+
+    let repo = Repository::open(worktree_path)
+        .map_err(|e| format!("Failed to open worktree repository: {}", e))?;
+
+    let mut files = Vec::new();
+    let statuses = repo.statuses(None)
+        .map_err(|e| format!("Failed to get repository status: {}", e))?;
+
+    for entry in statuses.iter() {
+        let status_flags = entry.status();
+        let path = entry.path().unwrap_or("unknown").to_string();
+
+        let status_str = if status_flags.contains(git2::Status::WT_NEW) {
+            "untracked"
+        } else if status_flags.contains(git2::Status::WT_MODIFIED) {
+            "modified"
+        } else if status_flags.contains(git2::Status::WT_DELETED) {
+            "deleted"
+        } else if status_flags.contains(git2::Status::WT_RENAMED) {
+            "renamed"
+        } else if status_flags.contains(git2::Status::INDEX_NEW) {
+            "staged-new"
+        } else if status_flags.contains(git2::Status::INDEX_MODIFIED) {
+            "staged-modified"
+        } else if status_flags.contains(git2::Status::INDEX_DELETED) {
+            "staged-deleted"
+        } else {
+            "unknown"
+        };
+
+        files.push(FileStatus {
+            path,
+            status: status_str.to_string(),
+        });
+    }
+
+    println!("Found {} changed files", files.len());
+    Ok(files)
+}
+
+/// Commits selected files in a worktree
+///
+/// # Arguments
+/// * `worktree_path` - Path to the worktree
+/// * `files` - List of file paths to commit
+/// * `message` - Commit message
+///
+/// # Returns
+/// * `Ok(String)` - Commit hash
+/// * `Err(String)` - Error message if commit fails
+pub fn commit_worktree_changes(worktree_path: &str, files: Vec<String>, message: &str) -> Result<String, String> {
+    println!("Committing {} files in worktree: {}", files.len(), worktree_path);
+
+    let repo = Repository::open(worktree_path)
+        .map_err(|e| format!("Failed to open worktree repository: {}", e))?;
+
+    let mut index = repo.index()
+        .map_err(|e| format!("Failed to get repository index: {}", e))?;
+
+    // Add each file to the index
+    for file_path in &files {
+        println!("Adding file to index: {}", file_path);
+        index.add_path(Path::new(file_path))
+            .map_err(|e| format!("Failed to add file '{}': {}", file_path, e))?;
+    }
+
+    // Write the index
+    index.write()
+        .map_err(|e| format!("Failed to write index: {}", e))?;
+
+    // Create commit
+    let tree_id = index.write_tree()
+        .map_err(|e| format!("Failed to write tree: {}", e))?;
+    let tree = repo.find_tree(tree_id)
+        .map_err(|e| format!("Failed to find tree: {}", e))?;
+
+    let signature = repo.signature()
+        .map_err(|e| format!("Failed to get signature: {}", e))?;
+
+    let parent_commit = repo.head()
+        .ok()
+        .and_then(|head| head.peel_to_commit().ok());
+
+    let parents: Vec<&git2::Commit> = if let Some(ref parent) = parent_commit {
+        vec![parent]
+    } else {
+        vec![]
+    };
+
+    let commit_id = repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        message,
+        &tree,
+        &parents,
+    ).map_err(|e| format!("Failed to create commit: {}", e))?;
+
+    println!("Created commit: {}", commit_id);
+    Ok(commit_id.to_string())
+}
+
+/// Gets the diff for a specific file in a worktree
+///
+/// # Arguments
+/// * `worktree_path` - Path to the worktree
+/// * `file_path` - Path to the file (relative to worktree)
+///
+/// # Returns
+/// * `Ok(String)` - Diff content
+/// * `Err(String)` - Error message if diff fails
+pub fn get_file_diff(worktree_path: &str, file_path: &str) -> Result<String, String> {
+    println!("Getting diff for file: {} in worktree: {}", file_path, worktree_path);
+
+    let repo = Repository::open(worktree_path)
+        .map_err(|e| format!("Failed to open worktree repository: {}", e))?;
+
+    // Get the HEAD tree
+    let head = repo.head()
+        .ok()
+        .and_then(|head| head.peel_to_tree().ok());
+
+    let mut diff_options = git2::DiffOptions::new();
+    diff_options.pathspec(file_path);
+
+    let diff = repo.diff_tree_to_workdir_with_index(
+        head.as_ref(),
+        Some(&mut diff_options),
+    ).map_err(|e| format!("Failed to create diff: {}", e))?;
+
+    let mut diff_text = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        let content = std::str::from_utf8(line.content()).unwrap_or("");
+        match line.origin() {
+            '+' => diff_text.push_str(&format!("+{}", content)),
+            '-' => diff_text.push_str(&format!("-{}", content)),
+            ' ' => diff_text.push_str(&format!(" {}", content)),
+            _ => diff_text.push_str(content),
+        }
+        true
+    }).map_err(|e| format!("Failed to print diff: {}", e))?;
+
+    Ok(diff_text)
+}
+
+/// Lists all git branches in a repository
+///
+/// # Arguments
+/// * `repo_path` - Path to the git repository
+///
+/// # Returns
+/// * `Ok(Vec<String>)` - List of branch names
+/// * `Err(String)` - Error message if listing fails
+pub fn list_git_branches(repo_path: &str) -> Result<Vec<String>, String> {
+    println!("Listing git branches for repository: {}", repo_path);
+
+    let repo = Repository::open(repo_path)
+        .map_err(|e| format!("Failed to open repository: {}", e))?;
+
+    let mut branches = Vec::new();
+
+    // List local branches
+    let branch_iter = repo.branches(Some(git2::BranchType::Local))
+        .map_err(|e| format!("Failed to list branches: {}", e))?;
+
+    for branch_result in branch_iter {
+        if let Ok((branch, _branch_type)) = branch_result {
+            if let Ok(Some(branch_name)) = branch.name() {
+                branches.push(branch_name.to_string());
+                println!("Found branch: {}", branch_name);
+            }
+        }
+    }
+
+    println!("Total branches found: {}", branches.len());
+    Ok(branches)
+}
+
 /// Opens the worktree in VS Code IDE
-/// 
+///
 /// # Arguments
 /// * `worktree_path` - Path to the worktree directory
-/// 
+///
 /// # Returns
 /// * `Ok(())` - If IDE was opened successfully
 /// * `Err(String)` - Error message if opening fails

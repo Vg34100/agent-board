@@ -32,6 +32,7 @@ pub fn TaskModal(
             created_at: Utc::now().to_rfc3339(),      // Timestamp for when task was created (as string)
             worktree_path: None,                      // No worktree initially
             profile: AgentProfile::ClaudeCode,        // Default to Claude Code
+            base_branch: "main".to_string(),          // Default base branch
         };
         
         // DEBUG: Test task serialization before calling the callback

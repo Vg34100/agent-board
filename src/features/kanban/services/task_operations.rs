@@ -165,6 +165,23 @@ pub fn update_task_profile(
     save_tasks_async(project_id, current_tasks);
 }
 
+// Update task base branch
+pub fn update_task_base_branch(
+    task_id: String,
+    base_branch: String,
+    project_id: String,
+    tasks_signal: RwSignal<Vec<Task>>,
+) {
+    tasks_signal.update(|tasks| {
+        if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+            task.set_base_branch(base_branch);
+        }
+    });
+
+    let current_tasks = tasks_signal.get_untracked();
+    save_tasks_async(project_id, current_tasks);
+}
+
 // Cancel a task (set status to Cancelled)
 pub fn cancel_task(
     task_id: String,
